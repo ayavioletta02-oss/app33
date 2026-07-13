@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import jsPDF from 'jspdf';
 
-export default function PDFGenerator({ missions, onNavigate, t }) {
+export default function PDFGenerator({ missions, onNavigate, t, canGeneratePdf = false }) {
   const [selectedId, setSelectedId] = useState('');
 
   const runCompilation = () => {
+    if (!canGeneratePdf) return;
     const target = missions.find(m => m.id === parseInt(selectedId));
     if (!target) return;
 
@@ -74,7 +75,7 @@ export default function PDFGenerator({ missions, onNavigate, t }) {
           ))}
         </select>
 
-        <button className="btn-next" style={{ width: '100%', padding: '14px', fontSize: '14px' }} onClick={runCompilation} disabled={!selectedId}>
+        <button className="btn-next" style={{ width: '100%', padding: '14px', fontSize: '14px' }} onClick={runCompilation} disabled={!selectedId || !canGeneratePdf}>
           {t.pdf.compileBtn}
         </button>
       </div>

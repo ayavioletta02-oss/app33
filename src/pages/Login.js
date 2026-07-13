@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import users from '../data/users';
 
+const toSessionUser = (user) => ({
+  id: user.id || user.username,
+  username: user.username,
+  name: user.name,
+  role: user.role
+});
+
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -8,12 +15,13 @@ export default function Login({ onLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    // Authentification locale de demonstration. A remplacer par Firebase Auth.
     const found = users.find(
       (u) => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password
     );
     if (found) {
       setError('');
-      onLogin(found);
+      onLogin(toSessionUser(found));
     } else {
       setError('Identifiant ou mot de passe incorrect.');
     }

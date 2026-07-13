@@ -311,6 +311,23 @@ const texts = {
   }
 };
 
+const SESSION_STORAGE_KEY = 'sepret_user';
+
+const sanitizeUserForSession = (user) => {
+  if (!user) return null;
+
+  return {
+    id: user.id || user.username,
+    username: user.username,
+    name: user.name,
+    role: user.role
+  };
+};
+
+// Controles de role temporaires cote interface. Ils ne remplacent pas les regles serveur/Firebase.
+const hasRole = (user, role) => user?.role === role;
+const canManageSensitiveActions = (user) => hasRole(user, 'Admin');
+
 export default function App() {
   // Gestion de la navigation par onglet
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -325,24 +342,32 @@ export default function App() {
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem('sepret_user');
+    const saved = localStorage.getItem(SESSION_STORAGE_KEY);
     if (saved) {
       try {
-        setCurrentUser(JSON.parse(saved));
+        const sanitizedUser = sanitizeUserForSession(JSON.parse(saved));
+        if (sanitizedUser?.username) {
+          setCurrentUser(sanitizedUser);
+          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sanitizedUser));
+        } else {
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+        }
       } catch (e) {
-        localStorage.removeItem('sepret_user');
+        localStorage.removeItem(SESSION_STORAGE_KEY);
       }
     }
     setCheckingSession(false);
   }, []);
 
   const handleLogin = (user) => {
-    localStorage.setItem('sepret_user', JSON.stringify(user));
-    setCurrentUser(user);
+    const sanitizedUser = sanitizeUserForSession(user);
+    if (!sanitizedUser?.username) return;
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sanitizedUser));
+    setCurrentUser(sanitizedUser);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('sepret_user');
+    localStorage.removeItem(SESSION_STORAGE_KEY);
     setCurrentUser(null);
   };
 
@@ -432,6 +457,7 @@ export default function App() {
   ]);
 
   const t = texts[language];
+  const canManageSensitiveData = canManageSensitiveActions(currentUser);
 
   // Vérification automatique des alertes d'expiration (Sous 40 jours)
   useEffect(() => {
@@ -557,7 +583,7 @@ export default function App() {
           />
         )}
         {activeTab === 'authorizations' && (
-          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} />
+          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} canManageSensitiveData={canManageSensitiveData} />
         )}
         {activeTab === 'new-mission' && (
           <NewMission
@@ -571,10 +597,10 @@ export default function App() {
           />
         )}
         {activeTab === 'pdf' && (
-          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} />
+          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} canGeneratePdf={canManageSensitiveData} />
         )}
         {activeTab === 'equipment' && (
-          <Equipment equipmentList={equipmentList} setEquipmentList={setEquipmentList} t={t} />
+          <Equipment equipmentList={equipmentList} setEquipmentList={setEquipmentList} t={t} canManageEquipment={canManageSensitiveData} />
         )}
         {activeTab === 'settings' && (
           <div style={{ padding: '16px' }}>

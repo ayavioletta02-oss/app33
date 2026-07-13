@@ -1,6 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = 'https://lucmcqsnfmoqoqlxftub.supabase.co';
-const supabaseKey = 'sb_publishable_ZKUa786FVMsyHvvh3IJmpw_6M0q-4mm';
-
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Supabase n'est pas integre dans cette phase.
+// Garder ce placeholder sans URL projet ni cle tant que le choix backend n'est pas valide.
+export const supabase = null;
