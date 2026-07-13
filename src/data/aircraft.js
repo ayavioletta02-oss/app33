@@ -1,0 +1,14 @@
+const aircraft = [
+  "ULTRACAM FALCON Mark2",
+  "CESSNA 172",
+  "CESSNA 208 CARAVAN",
+  "BEECHCRAFT KING AIR 350",
+  "BEECHCRAFT B200",
+  "PIPER PA34 SENECA",
+  "DIAMOND DA42",
+  "VULCANAIR P68",
+  "CESSNA 206",
+  "CESSNA 182"
+];
+
+export default aircraft;

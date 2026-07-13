@@ -1,0 +1,14 @@
+const pilots = [
+  "FOUAD SAADI",
+  "MOHAMED EL IDRISSI",
+  "YASSINE BOUAZZA",
+  "KHALID BENALI",
+  "HICHAM EL AMRANI",
+  "ANAS CHERKAOUI",
+  "HAMZA EL FASSI",
+  "OMAR CHAKIR",
+  "ABDELLAH EL ALAOUI",
+  "RACHID BENNANI"
+];
+
+export default pilots;
