@@ -117,14 +117,53 @@ export default function GlobalAuthorizations({ missions, onNavigate, t }) {
             <span>📤 {t.authorizations.submittedOn} {m.date}</span>
             <span style={{ color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>👁️ {t.authorizations.details}</span>
           </div>
-          <a
-            href={buildGmailLink(m)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-mail"
-          >
-            📧 {t.authorizations.sendMail}
-          </a>
+          <div
+  style={{
+    display: "flex",
+    gap: "10px",
+    marginTop: "15px",
+    alignItems: "center"
+  }}
+>
+  <a
+    href={buildGmailLink(m)}
+    target="_blank"
+    rel="noopener noreferrer"
+    style={{
+      flex: 1,
+      background: "#b91c1c",
+      color: "#fff",
+      textDecoration: "none",
+      textAlign: "center",
+      padding: "12px",
+      borderRadius: "12px",
+      fontWeight: "700",
+      fontSize: "14px",
+      transition: "0.3s"
+    }}
+  >
+    📧 Envoyer DGAC/DTA
+  </a>
+
+  <a
+    href={buildMailto(m)}
+    style={{
+      width: "48px",
+      height: "48px",
+      borderRadius: "12px",
+      background: "#f1f5f9",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      textDecoration: "none",
+      fontSize: "22px",
+      border: "1px solid #e2e8f0"
+    }}
+    title="Application Mail"
+  >
+    ✉️
+  </a>
+</div>
           <a
             href={buildMailto(m)}
             style={{ display: 'block', textAlign: 'center', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}
