@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { FeatureGroup, MapContainer, TileLayer, useMap } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 import * as turf from "@turf/turf";
+import { supabase } from "../supabaseClient";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -216,56 +217,38 @@ export default function AppPortal({ onSubmit, onNavigate }) {
   const previousStep = () => { if (step > 1) setStep(step - 1); };
 
   // Compile les données du formulaire en un dossier de mission et l'envoie à App.js
-  const handleSubmit = () => {
-    if (typeof onSubmit !== 'function') return;
+const handleSubmit = async () => {
 
-    const zoneLabel = formData.commune
-      ? `${formData.commune} (${formData.province || formData.region})`
-      : 'Zone non définie';
+  const { error } = await supabase
+    .from("missions")
+    .insert([
+      {
+        client: formData.client,
+        company: formData.company,
+        mission_type: formData.missionType,
+        region: formData.region,
+        province: formData.province,
+        commune: formData.commune,
+        airport: formData.airport,
+        aircraft_type: formData.aircraftType,
+        drone: formData.drone,
+        pilot: formData.pilot,
+        altitude: parseInt(formData.altitude),
+        duration: parseInt(formData.duration),
+        surface: Number(surface),
+        perimeter: Number(perimeter),
+        status: "pending"
+      }
+    ]);
 
-    onSubmit({
-      id: Math.floor(1320 + Math.random() * 100),
-      name: formData.client || 'Nouveau Projet SEPRET',
-      type: formData.missionType || 'Prise de vues aériennes',
-      status: 'pending',
-      date: new Date().toLocaleDateString('fr-FR'),
-      expiryDate: '',
-      zone: zoneLabel,
-      pilot: formData.pilot || 'N/A',
-      equipment: formData.drone || 'N/A',
-      aircraftType: formData.aircraftType,
-      zonePoints: formData.zonePoints,
-      surface,
-      perimeter
-    });
+  if (error) {
+    console.error(error);
+    alert(error.message);
+    return;
+  }
 
-    // Retour au tableau de bord une fois le dossier envoyé
-    if (typeof onNavigate === 'function') {
-      onNavigate('dashboard');
-    }
-
-    // Remise à zéro pour une prochaine saisie propre
-    setStep(1);
-    setFormData({
-      client: "",
-      company: "Sepret Rabat",
-      missionType: "",
-      region: "",
-      province: "",
-      commune: "",
-      airport: "",
-      aircraftType: "Drone",
-      drone: "",
-      pilot: "",
-      altitude: "120",
-      duration: "45",
-      zonePoints: [],
-      weather: { temperature: 38.4, windSpeed: 6.1, condition: "Ensoleillé / Ciel dégagé", visibility: "48.3" }
-    });
-    setSurface(0);
-    setPerimeter(0);
-  };
-
+  alert("Mission enregistrée avec succès !");
+};
   const updateField = (field, value) => {
     setFormData(prev => {
       const updated = { ...prev, [field]: value };

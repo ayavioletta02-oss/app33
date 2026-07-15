@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 
-// ⚠️ Remplace ces adresses par les vraies adresses officielles de la DGAC et de la DTA
+// Remplace ces adresses par les vraies adresses officielles de la DGAC et de la DTA
 const DGAC_EMAIL = "dgac@aviation.gov.ma";
 const DTA_EMAIL = "dta@aviation.gov.ma";
 
-// Construit le lien mailto pré-rempli avec les informations du dossier
+// Construit le lien mailto pre-rempli avec les informations du dossier
 function buildMailto(mission) {
   const subject = encodeURIComponent(`Demande d'autorisation de vol PVA - Dossier N°${mission.id}`);
   const body = encodeURIComponent(
@@ -28,7 +28,7 @@ SEPRET`
   return `mailto:${DGAC_EMAIL},${DTA_EMAIL}?subject=${subject}&body=${body}`;
 }
 
-// Lien Gmail web : marche toujours dans le navigateur, sans appli mail configurée
+// Lien Gmail web : marche toujours dans le navigateur, sans appli mail configuree
 function buildGmailLink(mission) {
   const subject = `Demande d'autorisation de vol PVA - Dossier N°${mission.id}`;
   const body =
@@ -80,7 +80,7 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
         )}
       </div>
 
-      {/* Filtres de sélection */}
+      {/* Filtres de selection */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px' }}>
         {['Toutes', 'Actives', 'En attente', 'Expirées'].map((f) => (
           <button
@@ -119,16 +119,56 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
             <span>📤 {t.authorizations.submittedOn} {m.date}</span>
             <span style={{ color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>👁️ {t.authorizations.details}</span>
           </div>
+          {/* Controle frontend temporaire : les envois sensibles restent a proteger cote serveur. */}
           {canManageSensitiveData && (
             <>
-              <a
-                href={buildGmailLink(m)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-mail"
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  marginTop: "15px",
+                  alignItems: "center"
+                }}
               >
-                📧 {t.authorizations.sendMail}
-              </a>
+                <a
+                  href={buildGmailLink(m)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    flex: 1,
+                    background: "#b91c1c",
+                    color: "#fff",
+                    textDecoration: "none",
+                    textAlign: "center",
+                    padding: "12px",
+                    borderRadius: "12px",
+                    fontWeight: "700",
+                    fontSize: "14px",
+                    transition: "0.3s"
+                  }}
+                >
+                  📧 {t.authorizations.sendMail}
+                </a>
+
+                <a
+                  href={buildMailto(m)}
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "12px",
+                    background: "#f1f5f9",
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    textDecoration: "none",
+                    fontSize: "22px",
+                    border: "1px solid #e2e8f0"
+                  }}
+                  title="Application Mail"
+                >
+                  ✉️
+                </a>
+              </div>
               <a
                 href={buildMailto(m)}
                 style={{ display: 'block', textAlign: 'center', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}

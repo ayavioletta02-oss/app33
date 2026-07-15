@@ -107,6 +107,12 @@ const texts = {
       expiresIn: "arrive à échéance dans",
       days: "jours",
       relaunch: "Relancer la DTA !"
+    },
+    maintenanceBanner: {
+      title: "Alerte Maintenance",
+      noMaintenanceSince: "n'a pas eu de maintenance depuis",
+      days: "jours",
+      planIntervention: "Planifie une intervention !"
     }
   },
 
@@ -207,6 +213,12 @@ const texts = {
       expiresIn: "expires in",
       days: "days",
       relaunch: "Follow up with DTA!"
+    },
+    maintenanceBanner: {
+      title: "Maintenance Alert",
+      noMaintenanceSince: "has had no maintenance for",
+      days: "days",
+      planIntervention: "Schedule a service!"
     }
   },
 
@@ -307,6 +319,12 @@ const texts = {
       expiresIn: "ينتهي خلال",
       days: "أيام",
       relaunch: "تابع مع المديرية!"
+    },
+    maintenanceBanner: {
+      title: "تنبيه الصيانة",
+      noMaintenanceSince: "لم تخضع للصيانة منذ",
+      days: "أيام",
+      planIntervention: "خطط لتدخل!"
     }
   }
 };
@@ -566,7 +584,7 @@ export default function App() {
         <div className="maintenance-alert-banner">
           {maintenanceAlerts.map((alert, index) => (
             <div key={index} className="alert-item">
-              🔧 <strong>Alerte Maintenance :</strong> {alert.name} n'a pas eu de maintenance depuis <strong>{alert.jours} jours</strong>. Planifie une intervention !
+              🔧 <strong>{t.maintenanceBanner.title} :</strong> {alert.name} {t.maintenanceBanner.noMaintenanceSince} <strong>{alert.jours} {t.maintenanceBanner.days}</strong>. {t.maintenanceBanner.planIntervention}
             </div>
           ))}
         </div>
