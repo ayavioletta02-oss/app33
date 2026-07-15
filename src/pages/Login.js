@@ -1,5 +1,29 @@
 import React, { useState } from "react";
-import { supabase } from "../supabaseClient";
+import { isSupabaseConfigured, supabase } from "../supabaseClient";
+import users from "../data/users";
+
+const toSessionUser = (user) => ({
+  id: user.id || user.username,
+  username: user.username || user.email || user.user_metadata?.username,
+  name:
+    user.name ||
+    user.user_metadata?.name ||
+    user.user_metadata?.full_name ||
+    user.email?.split("@")[0] ||
+    user.username,
+  role: user.role || user.user_metadata?.role || "Pilote"
+});
+
+const findLocalDemoUser = (email, password) => {
+  const login = email.trim().toLowerCase();
+
+  return users.find((user) => {
+    const username = user.username.toLowerCase();
+    const demoEmail = `${username}@sepret.ma`;
+
+    return user.password === password && (login === username || login === demoEmail);
+  });
+};
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -7,27 +31,40 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
- const handleSubmit = async (e) => {
-  e.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
 
-  setError("");
+    try {
+      if (isSupabaseConfigured) {
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        });
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password,
-  });
+        if (authError) {
+          setError(authError.message);
+          return;
+        }
 
-  console.log("DATA :", data);
-  console.log("ERROR :", error);
+        if (data?.user) {
+          onLogin(toSessionUser(data.user));
+          return;
+        }
+      }
 
-  if (error) {
-    setError(error.message);
-    return;
-  }
-
-  alert("Connexion réussie !");
-  onLogin(data.user);
-};
+      // Authentification locale de demonstration. A remplacer par Firebase Auth ou un backend valide.
+      const found = findLocalDemoUser(email, password);
+      if (found) {
+        onLogin(toSessionUser(found));
+      } else {
+        setError("Identifiant ou mot de passe incorrect.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function Equipment({ equipmentList, setEquipmentList, t }) {
+export default function Equipment({ equipmentList, setEquipmentList, t, canManageEquipment = false }) {
   const [showForm, setShowForm] = useState(false);
   const [newItem, setNewItem] = useState({
     name: '', type: 'camera', serial: '', status: 'disponible', lastMaintenance: ''
@@ -21,6 +21,7 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
   };
 
   const handleAdd = () => {
+    if (!canManageEquipment) return;
     if (!newItem.name.trim()) return;
     setEquipmentList(prev => [{ ...newItem, id: Date.now() }, ...prev]);
     setNewItem({ name: '', type: 'camera', serial: '', status: 'disponible', lastMaintenance: '' });
@@ -28,10 +29,12 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
   };
 
   const handleDelete = (id) => {
+    if (!canManageEquipment) return;
     setEquipmentList(prev => prev.filter(e => e.id !== id));
   };
 
   const handleStatusChange = (id, status) => {
+    if (!canManageEquipment) return;
     setEquipmentList(prev => prev.map(e => (e.id === id ? { ...e, status } : e)));
   };
 
@@ -42,7 +45,9 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
           <h1 className="main-title" style={{ fontSize: '22px' }}>{t.equipment.title}</h1>
           <div className="sub-title">{t.equipment.subtitle}</div>
         </div>
-        <button className="btn-add" onClick={() => setShowForm(!showForm)}>{t.equipment.addBtn}</button>
+        {canManageEquipment && (
+          <button className="btn-add" onClick={() => setShowForm(!showForm)}>{t.equipment.addBtn}</button>
+        )}
       </div>
 
       <div className="stat-grid">
@@ -52,7 +57,7 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
         <div className="stat-box"><div className="stat-num" style={{ color: '#f59e0b' }}>{stats.maintenance}</div><div className="stat-txt">{t.equipment.maintenance}</div></div>
       </div>
 
-      {showForm && (
+      {showForm && canManageEquipment && (
         <div className="card">
           <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', color: 'var(--primary-color)' }}>{t.equipment.formTitle}</h3>
 
@@ -118,6 +123,7 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
             <select
               value={item.status}
               onChange={(e) => handleStatusChange(item.id, e.target.value)}
+              disabled={!canManageEquipment}
               style={{ flex: 1, fontSize: '12px', padding: '6px' }}
             >
               <option value="disponible">{t.equipment.statusAvailable}</option>
@@ -125,7 +131,9 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
               <option value="maintenance">{t.equipment.statusMaintenance}</option>
               <option value="hors_service">{t.equipment.statusOut}</option>
             </select>
-            <span className="clear-link" onClick={() => handleDelete(item.id)}>✕ {t.equipment.delete}</span>
+            {canManageEquipment && (
+              <span className="clear-link" onClick={() => handleDelete(item.id)}>✕ {t.equipment.delete}</span>
+            )}
           </div>
         </div>
       ))}
