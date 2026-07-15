@@ -1,9 +1,7 @@
-// Liste des comptes autorisés à se connecter à Aviation Portal
-// ⚠️ Change ces mots de passe avant de partager l'app avec ton équipe
+// Deprecated: Firebase Authentication replaces local demo users in security phase 2.
+// Keep this empty export only to avoid breaking any legacy import during migration.
+// Do not add passwords or production credentials here.
 
-const users = [
-  { username: "admin", password: "sepret2026", name: "Administrateur", role: "Admin" },
-  { username: "fouad", password: "pilote2026", name: "Fouad Saadi", role: "Pilote" }
-];
+const users = [];
 
 export default users;
