@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import "./App.css";
 import Dashboard from "./pages/Dashboard";
@@ -7,6 +8,7 @@ import NewMission from "./pages/NewMission";
 import PDFGenerator from "./pages/PDFGenerator";
 import Equipment from "./pages/Equipment";
 import Login from "./pages/Login";
+import { auth, isFirebaseConfigured } from "./firebase";
 
 // Dictionnaire de traduction complet de l'application (FR / EN / AR)
 const texts = {
@@ -329,6 +331,32 @@ const texts = {
   }
 };
 
+const getAdminEmails = () =>
+  (process.env.REACT_APP_ADMIN_EMAILS || "admin@sepret.ma")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+const getTemporaryRole = (email) => {
+  if (!email) return "Pilote";
+  return getAdminEmails().includes(email.toLowerCase()) ? "Admin" : "Pilote";
+};
+
+const toAppUser = (firebaseUser) => {
+  if (!firebaseUser) return null;
+
+  return {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email,
+    name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Utilisateur",
+    role: getTemporaryRole(firebaseUser.email)
+  };
+};
+
+// Controle UI temporaire. La vraie autorisation doit passer par Firestore Rules/custom claims en phase 3.
+const hasRole = (user, role) => user?.role === role;
+const canManageSensitiveActions = (user) => hasRole(user, "Admin");
+
 export default function App() {
   // Gestion de la navigation par onglet
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -338,30 +366,33 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [language, setLanguage] = useState("fr");
 
-  // Gestion de la connexion utilisateur (session gardée sur l'appareil)
+  // Gestion de la connexion utilisateur via Firebase Authentication.
   const [currentUser, setCurrentUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem('sepret_user');
-    if (saved) {
-      try {
-        setCurrentUser(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem('sepret_user');
-      }
+    localStorage.removeItem("sepret_user");
+
+    if (!isFirebaseConfigured || !auth) {
+      setCurrentUser(null);
+      setCheckingSession(false);
+      return undefined;
     }
-    setCheckingSession(false);
+
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setCurrentUser(toAppUser(firebaseUser));
+      setCheckingSession(false);
+    });
+
+    return unsubscribe;
   }, []);
 
-  const handleLogin = (user) => {
-    localStorage.setItem('sepret_user', JSON.stringify(user));
-    setCurrentUser(user);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('sepret_user');
-    setCurrentUser(null);
+  const handleLogout = async () => {
+    if (auth) {
+      await signOut(auth);
+    } else {
+      setCurrentUser(null);
+    }
   };
 
   const [notificationsList] = useState([
@@ -450,6 +481,7 @@ export default function App() {
   ]);
 
   const t = texts[language];
+  const canManageSensitiveData = canManageSensitiveActions(currentUser);
 
   // Vérification automatique des alertes d'expiration (Sous 40 jours)
   useEffect(() => {
@@ -537,7 +569,7 @@ export default function App() {
 
   // Pas connecté → on affiche l'écran de connexion à la place de l'application
   if (!currentUser) {
-    return <Login onLogin={handleLogin} />;
+    return <Login />;
   }
 
   return (
@@ -575,7 +607,7 @@ export default function App() {
           />
         )}
         {activeTab === 'authorizations' && (
-          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} />
+          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} canManageSensitiveData={canManageSensitiveData} />
         )}
         {activeTab === 'new-mission' && (
           <NewMission
@@ -586,13 +618,14 @@ export default function App() {
             onNavigate={setActiveTab}
             onSubmit={handleAddNewMission}
             t={t}
+            canManageSensitiveData={canManageSensitiveData}
           />
         )}
         {activeTab === 'pdf' && (
-          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} />
+          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} canGeneratePdf={canManageSensitiveData} />
         )}
         {activeTab === 'equipment' && (
-          <Equipment equipmentList={equipmentList} setEquipmentList={setEquipmentList} t={t} />
+          <Equipment equipmentList={equipmentList} setEquipmentList={setEquipmentList} t={t} canManageEquipment={canManageSensitiveData} />
         )}
         {activeTab === 'settings' && (
           <div style={{ padding: '16px' }}>

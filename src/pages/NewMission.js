@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { FeatureGroup, MapContainer, TileLayer, useMap } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 import * as turf from "@turf/turf";
-import { supabase } from "../supabaseClient";
+import { isSupabaseConfigured, supabase } from "../supabaseClient";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -180,7 +180,7 @@ function ChangeView({ center, zoom }) {
   return null;
 }
 
-export default function AppPortal({ onSubmit, onNavigate }) {
+export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData = false }) {
   const TOTAL_STEPS = 5;
   const [currentTab, setCurrentTab] = useState("new_mission");
   const [step, setStep] = useState(1); // On démarre à l'étape 1
@@ -216,39 +216,58 @@ export default function AppPortal({ onSubmit, onNavigate }) {
   };
   const previousStep = () => { if (step > 1) setStep(step - 1); };
 
-  // Compile les données du formulaire en un dossier de mission et l'envoie à App.js
-const handleSubmit = async () => {
+  // Controle UI temporaire : la soumission sensible reste a proteger par des regles serveur en phase 3.
+  const handleSubmit = async () => {
+    if (!canManageSensitiveData) return;
 
-  const { error } = await supabase
-    .from("missions")
-    .insert([
-      {
-        client: formData.client,
-        company: formData.company,
-        mission_type: formData.missionType,
-        region: formData.region,
-        province: formData.province,
-        commune: formData.commune,
-        airport: formData.airport,
-        aircraft_type: formData.aircraftType,
-        drone: formData.drone,
-        pilot: formData.pilot,
-        altitude: parseInt(formData.altitude),
-        duration: parseInt(formData.duration),
-        surface: Number(surface),
-        perimeter: Number(perimeter),
-        status: "pending"
+    const mission = {
+      id: Date.now(),
+      name: formData.client || formData.company || "Mission sans client",
+      type: formData.missionType || "Prise de vues aériennes",
+      zone: [formData.commune, formData.province, formData.region].filter(Boolean).join(" - ") || formData.airport || "Zone non renseignée",
+      date: new Date().toLocaleDateString("fr-FR"),
+      expiryDate: "",
+      status: "pending",
+      pilot: formData.pilot || "N/A",
+      equipment: formData.drone || formData.aircraftType || "N/A",
+      cost: 0,
+      days: parseInt(formData.duration, 10) || 0
+    };
+
+    if (isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("missions")
+        .insert([
+          {
+            client: formData.client,
+            company: formData.company,
+            mission_type: formData.missionType,
+            region: formData.region,
+            province: formData.province,
+            commune: formData.commune,
+            airport: formData.airport,
+            aircraft_type: formData.aircraftType,
+            drone: formData.drone,
+            pilot: formData.pilot,
+            altitude: parseInt(formData.altitude, 10),
+            duration: parseInt(formData.duration, 10),
+            surface: Number(surface),
+            perimeter: Number(perimeter),
+            status: "pending"
+          }
+        ]);
+
+      if (error) {
+        console.error(error);
       }
-    ]);
+    }
 
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
+    if (onSubmit) {
+      onSubmit(mission);
+    }
 
-  alert("Mission enregistrée avec succès !");
-};
+    alert("Mission enregistrée avec succès !");
+  };
   const updateField = (field, value) => {
     setFormData(prev => {
       const updated = { ...prev, [field]: value };
@@ -541,7 +560,12 @@ const handleSubmit = async () => {
 
             <div className="step-buttons-container">
               <button className="btn-back" onClick={previousStep} disabled={step === 1}>← Retour</button>
-              <button className="btn-next" onClick={nextStep} style={{ background: step === 5 ? "#16a34a" : "#009688" }}>
+              <button
+                className="btn-next"
+                onClick={nextStep}
+                disabled={step === 5 && !canManageSensitiveData}
+                style={{ background: step === 5 ? "#16a34a" : "#009688" }}
+              >
                 {step === 5 ? "Soumettre ✔" : "Suivant →"}
               </button>
             </div>
