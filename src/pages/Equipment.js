@@ -1,38 +1,149 @@
 import React, { useState } from 'react';
+import {
+  createEquipment,
+  deleteEquipment,
+  updateEquipment
+} from '../services/equipmentService';
 
-export default function Equipment({ equipmentList, setEquipmentList, t }) {
+export default function Equipment({
+  equipmentList,
+  t,
+  canManageEquipment = false,
+  currentUser = null,
+  equipmentLoading = false,
+  equipmentError = "",
+  onEquipmentChanged
+}) {
   const [showForm, setShowForm] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [userMessage, setUserMessage] = useState("");
   const [newItem, setNewItem] = useState({
-    name: '', type: 'camera', serial: '', status: 'disponible', lastMaintenance: ''
+    name: '',
+    type: 'camera',
+    serial: '',
+    status: 'available',
+    model: '',
+    registration: '',
+    lastMaintenance: '',
+    notes: ''
   });
 
   const statusConfig = {
+    available: { label: t.equipment.statusAvailable, class: 'status-disponible' },
     disponible: { label: t.equipment.statusAvailable, class: 'status-disponible' },
+    in_mission: { label: t.equipment.statusMission, class: 'status-mission' },
     mission: { label: t.equipment.statusMission, class: 'status-mission' },
     maintenance: { label: t.equipment.statusMaintenance, class: 'status-maintenance' },
+    out_of_service: { label: t.equipment.statusOut, class: 'status-hors-service' },
     hors_service: { label: t.equipment.statusOut, class: 'status-hors-service' }
   };
 
   const stats = {
     total: equipmentList.length,
-    disponible: equipmentList.filter(e => e.status === 'disponible').length,
-    mission: equipmentList.filter(e => e.status === 'mission').length,
+    disponible: equipmentList.filter(e => e.status === 'available' || e.status === 'disponible').length,
+    mission: equipmentList.filter(e => e.status === 'in_mission' || e.status === 'mission').length,
     maintenance: equipmentList.filter(e => e.status === 'maintenance').length
   };
 
-  const handleAdd = () => {
-    if (!newItem.name.trim()) return;
-    setEquipmentList(prev => [{ ...newItem, id: Date.now() }, ...prev]);
-    setNewItem({ name: '', type: 'camera', serial: '', status: 'disponible', lastMaintenance: '' });
-    setShowForm(false);
+  const resetForm = () => {
+    setNewItem({
+      name: '',
+      type: 'camera',
+      serial: '',
+      status: 'available',
+      model: '',
+      registration: '',
+      lastMaintenance: '',
+      notes: ''
+    });
   };
 
-  const handleDelete = (id) => {
-    setEquipmentList(prev => prev.filter(e => e.id !== id));
+  const reloadAfterAction = async () => {
+    if (onEquipmentChanged) {
+      await onEquipmentChanged();
+    }
   };
 
-  const handleStatusChange = (id, status) => {
-    setEquipmentList(prev => prev.map(e => (e.id === id ? { ...e, status } : e)));
+  const handleAdd = async () => {
+    if (!canManageEquipment || actionLoading) return;
+
+    if (!newItem.name.trim()) {
+      setUserMessage("Le nom de l'equipement est obligatoire.");
+      return;
+    }
+
+    setActionLoading(true);
+    setUserMessage("");
+
+    try {
+      await createEquipment(newItem, currentUser);
+      await reloadAfterAction();
+      resetForm();
+      setShowForm(false);
+      setUserMessage("Equipement ajoute avec succes.");
+      alert("Equipement ajoute avec succes.");
+    } catch (error) {
+      console.error("[Equipment] Creation impossible", {
+        code: error?.code,
+        message: error?.message
+      });
+      const message = "Impossible d'enregistrer l'equipement. Verifiez votre connexion et vos droits.";
+      setUserMessage(message);
+      alert(message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!canManageEquipment || actionLoading) return;
+
+    const confirmed = window.confirm("Confirmer la suppression de cet equipement ?");
+    if (!confirmed) return;
+
+    setActionLoading(true);
+    setUserMessage("");
+
+    try {
+      await deleteEquipment(id, currentUser);
+      await reloadAfterAction();
+      setUserMessage("Equipement supprime avec succes.");
+      alert("Equipement supprime avec succes.");
+    } catch (error) {
+      console.error("[Equipment] Suppression impossible", {
+        code: error?.code,
+        message: error?.message
+      });
+      const message = "Impossible de supprimer l'equipement. Verifiez votre connexion et vos droits.";
+      setUserMessage(message);
+      alert(message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (id, status) => {
+    if (!canManageEquipment || actionLoading) return;
+
+    setActionLoading(true);
+    setUserMessage("");
+
+    try {
+      await updateEquipment(id, { status }, currentUser);
+      await reloadAfterAction();
+      setUserMessage("Statut du materiel mis a jour.");
+      alert("Statut du materiel mis a jour.");
+    } catch (error) {
+      console.error("[Equipment] Mise a jour impossible", {
+        code: error?.code,
+        message: error?.message
+      });
+      const message = "Impossible de modifier le statut. Verifiez votre connexion et vos droits.";
+      setUserMessage(message);
+      alert(message);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   return (
@@ -42,7 +153,9 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
           <h1 className="main-title" style={{ fontSize: '22px' }}>{t.equipment.title}</h1>
           <div className="sub-title">{t.equipment.subtitle}</div>
         </div>
-        <button className="btn-add" onClick={() => setShowForm(!showForm)}>{t.equipment.addBtn}</button>
+        {canManageEquipment && (
+          <button className="btn-add" onClick={() => setShowForm(!showForm)} disabled={actionLoading || equipmentLoading}>{t.equipment.addBtn}</button>
+        )}
       </div>
 
       <div className="stat-grid">
@@ -52,15 +165,21 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
         <div className="stat-box"><div className="stat-num" style={{ color: '#f59e0b' }}>{stats.maintenance}</div><div className="stat-txt">{t.equipment.maintenance}</div></div>
       </div>
 
-      {showForm && (
+      {(equipmentLoading || equipmentError || userMessage) && (
+        <div className="card" style={{ fontSize: '13px', color: equipmentError ? '#b91c1c' : '#64748b' }}>
+          {equipmentLoading ? "Chargement du materiel..." : equipmentError || userMessage}
+        </div>
+      )}
+
+      {showForm && canManageEquipment && (
         <div className="card">
           <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', color: 'var(--primary-color)' }}>{t.equipment.formTitle}</h3>
 
           <label>{t.equipment.nameLabel}</label>
-          <input type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} />
+          <input type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} disabled={actionLoading} />
 
           <label>{t.equipment.typeLabel}</label>
-          <select value={newItem.type} onChange={e => setNewItem({ ...newItem, type: e.target.value })}>
+          <select value={newItem.type} onChange={e => setNewItem({ ...newItem, type: e.target.value })} disabled={actionLoading}>
             <option value="camera">{t.equipment.types.camera}</option>
             <option value="aircraft">{t.equipment.types.aircraft}</option>
             <option value="drone">{t.equipment.types.drone}</option>
@@ -68,27 +187,27 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
           </select>
 
           <label>{t.equipment.serialLabel}</label>
-          <input type="text" value={newItem.serial} onChange={e => setNewItem({ ...newItem, serial: e.target.value })} />
+          <input type="text" value={newItem.serial} onChange={e => setNewItem({ ...newItem, serial: e.target.value })} disabled={actionLoading} />
 
           <label>{t.equipment.statusLabel}</label>
-          <select value={newItem.status} onChange={e => setNewItem({ ...newItem, status: e.target.value })}>
-            <option value="disponible">{t.equipment.statusAvailable}</option>
-            <option value="mission">{t.equipment.statusMission}</option>
+          <select value={newItem.status} onChange={e => setNewItem({ ...newItem, status: e.target.value })} disabled={actionLoading}>
+            <option value="available">{t.equipment.statusAvailable}</option>
+            <option value="in_mission">{t.equipment.statusMission}</option>
             <option value="maintenance">{t.equipment.statusMaintenance}</option>
-            <option value="hors_service">{t.equipment.statusOut}</option>
+            <option value="out_of_service">{t.equipment.statusOut}</option>
           </select>
 
           <label>{t.equipment.lastMaintenanceLabel}</label>
-          <input type="date" value={newItem.lastMaintenance} onChange={e => setNewItem({ ...newItem, lastMaintenance: e.target.value })} />
+          <input type="date" value={newItem.lastMaintenance} onChange={e => setNewItem({ ...newItem, lastMaintenance: e.target.value })} disabled={actionLoading} />
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-            <button className="btn-back" style={{ flex: 1 }} onClick={() => setShowForm(false)}>{t.equipment.cancel}</button>
-            <button className="btn-next" style={{ flex: 1 }} onClick={handleAdd}>{t.equipment.save}</button>
+            <button className="btn-back" style={{ flex: 1 }} onClick={() => setShowForm(false)} disabled={actionLoading}>{t.equipment.cancel}</button>
+            <button className="btn-next" style={{ flex: 1 }} onClick={handleAdd} disabled={actionLoading}>{actionLoading ? "Enregistrement..." : t.equipment.save}</button>
           </div>
         </div>
       )}
 
-      {equipmentList.length === 0 && !showForm && (
+      {equipmentList.length === 0 && !showForm && !equipmentLoading && (
         <div className="card" style={{ textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
           {t.equipment.noEquipment}
         </div>
@@ -100,7 +219,7 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
             <div>
               <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>{item.name}</h4>
               <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                {t.equipment.types[item.type] || item.type} · {item.serial || '—'}
+                {t.equipment.types[item.type] || item.type} Â· {item.serial || 'â€”'}
               </div>
             </div>
             <span className={`status-badge ${statusConfig[item.status]?.class || ''}`}>
@@ -110,7 +229,7 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
 
           {item.lastMaintenance && (
             <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '8px' }}>
-              🔧 {t.equipment.lastMaintenanceLabel} : {item.lastMaintenance}
+              ðŸ”§ {t.equipment.lastMaintenanceLabel} : {item.lastMaintenance}
             </div>
           )}
 
@@ -118,14 +237,23 @@ export default function Equipment({ equipmentList, setEquipmentList, t }) {
             <select
               value={item.status}
               onChange={(e) => handleStatusChange(item.id, e.target.value)}
+              disabled={!canManageEquipment || actionLoading}
               style={{ flex: 1, fontSize: '12px', padding: '6px' }}
             >
-              <option value="disponible">{t.equipment.statusAvailable}</option>
-              <option value="mission">{t.equipment.statusMission}</option>
+              <option value="available">{t.equipment.statusAvailable}</option>
+              <option value="in_mission">{t.equipment.statusMission}</option>
               <option value="maintenance">{t.equipment.statusMaintenance}</option>
-              <option value="hors_service">{t.equipment.statusOut}</option>
+              <option value="out_of_service">{t.equipment.statusOut}</option>
             </select>
-            <span className="clear-link" onClick={() => handleDelete(item.id)}>✕ {t.equipment.delete}</span>
+            {canManageEquipment && (
+              <span
+                className="clear-link"
+                onClick={() => handleDelete(item.id)}
+                style={{ opacity: actionLoading ? 0.5 : 1, pointerEvents: actionLoading ? 'none' : 'auto' }}
+              >
+                âœ• {t.equipment.delete}
+              </span>
+            )}
           </div>
         </div>
       ))}

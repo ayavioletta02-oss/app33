@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { FeatureGroup, MapContainer, TileLayer, useMap } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 import * as turf from "@turf/turf";
-import { supabase } from "../supabaseClient";
+import { createMission } from "../services/missionService";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -147,26 +147,6 @@ const MISSION_TYPES = [
   "Thermographie aérienne"
 ];
 
-const DRONE_MODELS = [
-  "DJI Mavic 3 Enterprise / Thermal",
-  "DJI Matrice 300 / 350 RTK",
-  "DJI Matrice 30 T",
-  "DJI Inspire 3",
-  "Phantom 4 RTK",
-  "WingtraOne Gen II (Voilure fixe)"
-];
-
-// Liste des avions/aéronefs pilotés disponibles pour les missions PVA
-const AIRPLANE_MODELS = [
-  "Cessna 172 Skyhawk",
-  "Cessna 206 Stationair",
-  "Cessna 208 Caravan",
-  "Diamond DA42 Twin Star",
-  "Piper PA-34 Seneca",
-  "Beechcraft King Air 350",
-  "ULTRACAM FALCON Mark2 (plateforme SEPRET)"
-];
-
 const PILOTS_LIST = [
   "Mehdi Alami (Licence N°4429)",
   "Anas Benjelloun (Licence N°5102)",
@@ -174,13 +154,30 @@ const PILOTS_LIST = [
   "Sami El Idrissi (Licence N°6214)"
 ];
 
+const parseOptionalNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getEquipmentLabel = (equipment) => (
+  [equipment.name, equipment.serial].filter(Boolean).join(" - ") || equipment.name || "Materiel sans nom"
+);
+
+const matchesAircraftType = (equipment, aircraftType) => {
+  if (aircraftType === "Avion") {
+    return equipment.type === "aircraft" || equipment.type === "camera";
+  }
+
+  return equipment.type === "drone";
+};
+
 function ChangeView({ center, zoom }) {
   const map = useMap();
   useEffect(() => { if (center) map.setView(center, zoom); }, [center, zoom, map]);
   return null;
 }
 
-export default function AppPortal({ onSubmit, onNavigate }) {
+export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData = false, currentUser = null, equipmentList = [] }) {
   const TOTAL_STEPS = 5;
   const [currentTab, setCurrentTab] = useState("new_mission");
   const [step, setStep] = useState(1); // On démarre à l'étape 1
@@ -194,6 +191,7 @@ export default function AppPortal({ onSubmit, onNavigate }) {
     commune: "",
     airport: "",
     aircraftType: "Drone",
+    equipmentId: "",
     drone: "",
     pilot: "",
     altitude: "120",
@@ -206,6 +204,10 @@ export default function AppPortal({ onSubmit, onNavigate }) {
   const [perimeter, setPerimeter] = useState(0);
   const [mapCenter, setMapCenter] = useState([34.0209, -6.8416]); // Centré sur Rabat par défaut
   const [mapZoom, setMapZoom] = useState(6);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const compatibleEquipment = equipmentList.filter((equipment) => matchesAircraftType(equipment, formData.aircraftType));
+  const selectedEquipment = equipmentList.find((equipment) => equipment.id === formData.equipmentId) || null;
 
   const nextStep = () => {
     if (step < TOTAL_STEPS) {
@@ -216,39 +218,96 @@ export default function AppPortal({ onSubmit, onNavigate }) {
   };
   const previousStep = () => { if (step > 1) setStep(step - 1); };
 
-  // Compile les données du formulaire en un dossier de mission et l'envoie à App.js
-const handleSubmit = async () => {
+  // Compile les donnees du formulaire en document mission Firestore.
+  const handleSubmit = async () => {
+    if (isSaving) return;
 
-  const { error } = await supabase
-    .from("missions")
-    .insert([
-      {
-        client: formData.client,
-        company: formData.company,
-        mission_type: formData.missionType,
+    if (!canManageSensitiveData || currentUser?.role !== "admin") {
+      const message = "Creation de mission reservee aux administrateurs.";
+      setSaveError(message);
+      alert(message);
+      return;
+    }
+
+    const zoneLabel = [formData.commune, formData.province, formData.region]
+      .filter(Boolean)
+      .join(" - ") || formData.airport || "Zone non renseignee";
+
+    const missionData = {
+      number: Date.now(),
+      name: formData.client || formData.company || "Mission sans client",
+      clientName: formData.client || formData.company || "",
+      missionType: formData.missionType || "Prise de vues aeriennes",
+      zone: zoneLabel,
+      date: new Date().toISOString().slice(0, 10),
+      expiryDate: "",
+      status: "pending",
+      pilot: formData.pilot || "",
+      equipment: selectedEquipment ? selectedEquipment.name : formData.drone || formData.aircraftType || "",
+      equipmentIds: selectedEquipment ? [selectedEquipment.id] : [],
+      location: {
         region: formData.region,
         province: formData.province,
         commune: formData.commune,
-        airport: formData.airport,
-        aircraft_type: formData.aircraftType,
-        drone: formData.drone,
-        pilot: formData.pilot,
-        altitude: parseInt(formData.altitude),
-        duration: parseInt(formData.duration),
-        surface: Number(surface),
-        perimeter: Number(perimeter),
-        status: "pending"
+        airportCode: formData.airport,
+        zoneLabel
+      },
+      flight: {
+        altitude: parseOptionalNumber(formData.altitude),
+        duration: parseOptionalNumber(formData.duration),
+        aircraftType: formData.aircraftType,
+        drone: selectedEquipment ? selectedEquipment.name : formData.drone
+      },
+      zonePoints: formData.zonePoints,
+      weather: formData.weather
+    };
+
+    setIsSaving(true);
+    setSaveError("");
+
+    try {
+      const createdMissionId = await createMission(missionData, currentUser);
+      alert("Mission enregistree avec succes !");
+
+      setFormData({
+        client: "",
+        company: "Sepret Rabat",
+        missionType: "",
+        region: "",
+        province: "",
+        commune: "",
+        airport: "",
+        aircraftType: "Drone",
+        equipmentId: "",
+        drone: "",
+        pilot: "",
+        altitude: "120",
+        duration: "45",
+        zonePoints: [[-13.2192, 27.1517], [-13.2100, 27.1600], [-13.2200, 27.1700]],
+        weather: { temperature: 38.4, windSpeed: 6.1, condition: "Ensoleille / Ciel degage", visibility: "48.3" }
+      });
+      setSurface(0);
+      setPerimeter(0);
+      setMapCenter([34.0209, -6.8416]);
+      setMapZoom(6);
+      setStep(1);
+
+      if (onSubmit) {
+        await onSubmit(createdMissionId);
       }
-    ]);
+    } catch (error) {
+      console.error("[Mission] Creation Firestore impossible", {
+        code: error?.code,
+        message: error?.message
+      });
 
-  if (error) {
-    console.error(error);
-    alert(error.message);
-    return;
-  }
-
-  alert("Mission enregistrée avec succès !");
-};
+      const message = "Impossible d'enregistrer la mission. Verifiez votre connexion et vos droits.";
+      setSaveError(message);
+      alert(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   const updateField = (field, value) => {
     setFormData(prev => {
       const updated = { ...prev, [field]: value };
@@ -264,6 +323,7 @@ const handleSubmit = async () => {
       // Reset du modèle choisi si on change le type d'appareil (Drone <-> Avion)
       if (field === "aircraftType") {
         updated.drone = "";
+        updated.equipmentId = "";
       }
       return updated;
     });
@@ -448,10 +508,20 @@ const handleSubmit = async () => {
                   </div>
 
                   <div className="form-group">
-                    <label>{formData.aircraftType === "Avion" ? "Modèle d'avion réglementé *" : "Modèle de drone réglementé *"}</label>
-                    <select value={formData.drone} onChange={(e) => updateField("drone", e.target.value)}>
-                      <option value="">{formData.aircraftType === "Avion" ? "Sélectionner un avion..." : "Sélectionner un drone..."}</option>
-                      {(formData.aircraftType === "Avion" ? AIRPLANE_MODELS : DRONE_MODELS).map((d, i) => <option key={i} value={d}>{d}</option>)}
+                    <label>{formData.aircraftType === "Avion" ? "Matériel avion / caméra *" : "Matériel drone *"}</label>
+                    <select
+                      value={formData.equipmentId}
+                      onChange={(e) => {
+                        const equipmentId = e.target.value;
+                        const equipment = equipmentList.find((item) => item.id === equipmentId);
+                        updateField("equipmentId", equipmentId);
+                        updateField("drone", equipment ? equipment.name : "");
+                      }}
+                    >
+                      <option value="">{compatibleEquipment.length === 0 ? "Aucun matériel disponible" : "Sélectionner le matériel..."}</option>
+                      {compatibleEquipment.map((equipment) => (
+                        <option key={equipment.id} value={equipment.id}>{getEquipmentLabel(equipment)}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -539,10 +609,22 @@ const handleSubmit = async () => {
 
             </div>
 
+            {step === 5 && !canManageSensitiveData && (
+              <div style={{ color: "#b91c1c", fontSize: "13px", marginTop: "12px", fontWeight: 600 }}>
+                Creation de mission reservee aux administrateurs.
+              </div>
+            )}
+
+            {saveError && (
+              <div style={{ color: "#b91c1c", fontSize: "13px", marginTop: "12px", fontWeight: 600 }}>
+                {saveError}
+              </div>
+            )}
+
             <div className="step-buttons-container">
               <button className="btn-back" onClick={previousStep} disabled={step === 1}>← Retour</button>
-              <button className="btn-next" onClick={nextStep} style={{ background: step === 5 ? "#16a34a" : "#009688" }}>
-                {step === 5 ? "Soumettre ✔" : "Suivant →"}
+              <button className="btn-next" onClick={nextStep} disabled={step === 5 && (!canManageSensitiveData || isSaving)} style={{ background: step === 5 ? "#16a34a" : "#009688" }}>
+                {step === 5 ? (isSaving ? "Enregistrement..." : "Soumettre ✔") : "Suivant →"}
               </button>
             </div>
           </div>

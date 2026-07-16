@@ -1,0 +1,49 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profilePath() {
+      return /databases/$(database)/documents/profiles/$(request.auth.uid);
+    }
+
+    function hasActiveProfile() {
+      return signedIn()
+        && exists(profilePath())
+        && get(profilePath()).data.disabled == false;
+    }
+
+    function isAdmin() {
+      return hasActiveProfile()
+        && get(profilePath()).data.role == "admin";
+    }
+
+    function isPilot() {
+      return hasActiveProfile()
+        && get(profilePath()).data.role == "pilot";
+    }
+
+    match /profiles/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /missions/{missionId} {
+      allow read: if isAdmin() || isPilot();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /equipment/{equipmentId} {
+      allow read: if isAdmin() || isPilot();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

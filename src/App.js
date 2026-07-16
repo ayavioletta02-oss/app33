@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import "./App.css";
 import Dashboard from "./pages/Dashboard";
@@ -7,6 +8,10 @@ import NewMission from "./pages/NewMission";
 import PDFGenerator from "./pages/PDFGenerator";
 import Equipment from "./pages/Equipment";
 import Login from "./pages/Login";
+import { auth, isFirebaseConfigured } from "./firebase";
+import { getProfile } from "./services/profileService";
+import { getAllMissions } from "./services/missionService";
+import { getAllEquipment } from "./services/equipmentService";
 
 // Dictionnaire de traduction complet de l'application (FR / EN / AR)
 const texts = {
@@ -329,6 +334,26 @@ const texts = {
   }
 };
 
+const VALID_ROLES = ["admin", "pilot"];
+
+const normalizeRole = (role) => (typeof role === "string" ? role.trim().toLowerCase() : "");
+
+const hasRole = (user, role) => user?.role === role;
+
+const canManageSensitiveActions = (user) => hasRole(user, "admin");
+
+const buildCurrentUser = (firebaseUser, profile) => {
+  const role = normalizeRole(profile?.role);
+
+  return {
+    uid: firebaseUser.uid,
+    email: profile?.email || firebaseUser.email,
+    name: profile?.displayName || firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Utilisateur",
+    role,
+    disabled: profile?.disabled === true
+  };
+};
+
 export default function App() {
   // Gestion de la navigation par onglet
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -338,30 +363,108 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [language, setLanguage] = useState("fr");
 
-  // Gestion de la connexion utilisateur (session gardée sur l'appareil)
+  // Gestion de la connexion utilisateur via Firebase Auth et profil Firestore.
   const [currentUser, setCurrentUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [authStatusMessage, setAuthStatusMessage] = useState("");
 
   useEffect(() => {
-    const saved = localStorage.getItem('sepret_user');
-    if (saved) {
-      try {
-        setCurrentUser(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem('sepret_user');
-      }
+    localStorage.removeItem("sepret_user");
+
+    if (!isFirebaseConfigured || !auth) {
+      console.error("[Firebase Auth] Configuration manquante");
+      setAuthStatusMessage("Firebase Authentication n'est pas configure.");
+      setCheckingSession(false);
+      return undefined;
     }
-    setCheckingSession(false);
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setCheckingSession(true);
+
+      if (!firebaseUser) {
+        setCurrentUser(null);
+        setCheckingSession(false);
+        return;
+      }
+
+      setAuthStatusMessage("");
+
+      try {
+        const profile = await getProfile(firebaseUser.uid);
+
+        if (!profile) {
+          console.error("[Profile] Profil applicatif absent", { uid: firebaseUser.uid });
+          setCurrentUser(null);
+          setAuthStatusMessage("Votre compte est authentifie, mais aucun profil applicatif n'est configure.");
+          setCheckingSession(false);
+          return;
+        }
+
+        const role = normalizeRole(profile.role);
+
+        if (!profile.uid || !profile.email || !role || typeof profile.disabled !== "boolean") {
+          console.error("[Profile] Profil applicatif incomplet", {
+            uid: firebaseUser.uid,
+            hasProfileUid: Boolean(profile.uid),
+            hasEmail: Boolean(profile.email),
+            hasRole: Boolean(role),
+            hasDisabled: typeof profile.disabled === "boolean"
+          });
+          setCurrentUser(null);
+          setAuthStatusMessage("Votre profil applicatif est incomplet.");
+          setCheckingSession(false);
+          return;
+        }
+
+        if (!VALID_ROLES.includes(role)) {
+          console.error("[Profile] Role non reconnu", { uid: firebaseUser.uid, role });
+          setCurrentUser(null);
+          setAuthStatusMessage("Votre profil applicatif contient un role non reconnu.");
+          setCheckingSession(false);
+          return;
+        }
+
+        if (profile.disabled === true) {
+          console.error("[Profile] Compte applicatif desactive", { uid: firebaseUser.uid });
+          setCurrentUser(null);
+          setAuthStatusMessage("Votre compte applicatif est desactive.");
+          await signOut(auth);
+          setCheckingSession(false);
+          return;
+        }
+
+        setCurrentUser(buildCurrentUser(firebaseUser, { ...profile, role }));
+      } catch (error) {
+        console.error("[Profile] Chargement du profil impossible", {
+          code: error?.code,
+          message: error?.message
+        });
+
+        setCurrentUser(null);
+
+        if (error?.code === "permission-denied") {
+          setAuthStatusMessage("Acces refuse au profil applicatif. Verifiez les regles Firestore.");
+        } else if (error?.code === "unavailable") {
+          setAuthStatusMessage("Firestore est temporairement indisponible. Reessayez plus tard.");
+        } else {
+          setAuthStatusMessage("Impossible de charger votre profil applicatif.");
+        }
+      } finally {
+        setCheckingSession(false);
+      }
+    });
+
+    return unsubscribe;
   }, []);
 
-  const handleLogin = (user) => {
-    localStorage.setItem('sepret_user', JSON.stringify(user));
-    setCurrentUser(user);
-  };
+  const handleLogout = async () => {
+    setAuthStatusMessage("");
 
-  const handleLogout = () => {
-    localStorage.removeItem('sepret_user');
-    setCurrentUser(null);
+    if (auth) {
+      await signOut(auth);
+    } else {
+      setCurrentUser(null);
+    }
   };
 
   const [notificationsList] = useState([
@@ -370,12 +473,40 @@ export default function App() {
     { id: 3, key: "expiringSoon" }
   ]);
 
-  // Parc matériel de SEPRET (caméras, aéronefs, drones, accessoires)
-  const [equipmentList, setEquipmentList] = useState([
-    { id: 1, name: "ULTRACAM FALCON Mark2", type: "camera", serial: "UF-2021-004", status: "mission", lastMaintenance: "2026-05-10" },
-    { id: 2, name: "Aéronef SEPRET-01", type: "aircraft", serial: "CN-TKV", status: "maintenance", lastMaintenance: "2026-06-01" },
-    { id: 3, name: "Aéronef SEPRET-02", type: "aircraft", serial: "CN-XT 02/15", status: "disponible", lastMaintenance: "2026-04-15" }
-  ]);
+  // Parc materiel charge depuis Firestore.
+  const [equipmentList, setEquipmentList] = useState([]);
+  const [equipmentLoading, setEquipmentLoading] = useState(false);
+  const [equipmentError, setEquipmentError] = useState("");
+
+  const reloadEquipment = useCallback(async () => {
+    setEquipmentLoading(true);
+    setEquipmentError("");
+
+    try {
+      const loadedEquipment = await getAllEquipment();
+      setEquipmentList(loadedEquipment);
+    } catch (error) {
+      console.error("[Equipment] Chargement Firestore impossible", {
+        code: error?.code,
+        message: error?.message
+      });
+      setEquipmentList([]);
+      setEquipmentError("Impossible de charger le materiel.");
+    } finally {
+      setEquipmentLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setEquipmentList([]);
+      setEquipmentLoading(false);
+      setEquipmentError("");
+      return undefined;
+    }
+
+    reloadEquipment();
+  }, [currentUser, reloadEquipment]);
 
   // Structure centralisée du formulaire de demande
   const [formData, setFormData] = useState({
@@ -387,72 +518,68 @@ export default function App() {
     aerodrome: '',
     endDate: '',
     pilot: 'FOUAD SAADI',
-    equipment: 'ULTRACAM FALCON Mark2'
+    equipment: ''
   });
 
-  // Base de données globale des dossiers et missions du portail
-  const [missions, setMissions] = useState([
-    {
-      id: 1319,
-      name: "Agence du Bassin Hydraulique du Guir-Ziz-Rhéris",
-      type: "Prise de vues aériennes",
-      zone: "Chefchaouen (Tanger-Tétouan-Al Hoceïma)",
-      date: "24/06/2026",
-      expiryDate: "2026-08-05",
-      status: "approved",
-      pilot: "FOUAD SAADI",
-      equipment: "ULTRACAM FALCON Mark2"
-    },
-    {
-      id: 1318,
-      name: "Agence du Bassin Hydraulique de Draa Oued Noun",
-      type: "Prise de vues aériennes",
-      zone: "Azilal (Béni Mellal-Khénifra)",
-      date: "24/06/2026",
-      expiryDate: "",
-      status: "pending",
-      pilot: "N/A",
-      equipment: "N/A"
-    },
-    {
-      id: 1317,
-      name: "Agence du Bassin Hydraulique du Guir-Ziz-Rhéris",
-      type: "Prise de vues aériennes",
-      zone: "Khémisset (Rabat-Salé-Kénitra)",
-      date: "24/06/2026",
-      expiryDate: "",
-      status: "pending",
-      pilot: "N/A",
-      equipment: "N/A"
-    },
-    {
-      id: 1316,
-      name: "Agence Urbaine Marrakech",
-      type: "Prise de vues aériennes",
-      zone: "El Hajeb (Fès-Meknès)",
-      date: "24/06/2026",
-      expiryDate: "",
-      status: "pending",
-      pilot: "N/A",
-      equipment: "N/A"
-    },
-    {
-      id: 1315,
-      name: "Agence du Bassin Hydraulique du Tensift",
-      type: "Prise de vues aériennes",
-      zone: "Sidi Kacem (Rabat-Salé-Kénitra)",
-      date: "24/06/2026",
-      expiryDate: "2026-09-22",
-      status: "approved",
-      pilot: "FOUAD SAADI",
-      equipment: "ULTRACAM FALCON Mark2"
+  // Missions chargees depuis Firestore.
+  const [missions, setMissions] = useState([]);
+  const [missionsLoading, setMissionsLoading] = useState(false);
+  const [missionsError, setMissionsError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!currentUser) {
+      setMissions([]);
+      setMissionsLoading(false);
+      setMissionsError("");
+      return undefined;
     }
-  ]);
+
+    const loadMissions = async () => {
+      setMissionsLoading(true);
+      setMissionsError("");
+
+      try {
+        const loadedMissions = await getAllMissions();
+
+        if (isMounted) {
+          setMissions(loadedMissions);
+        }
+      } catch (error) {
+        console.error("[Mission] Chargement Firestore impossible", {
+          code: error?.code,
+          message: error?.message
+        });
+
+        if (isMounted) {
+          setMissions([]);
+          setMissionsError("Impossible de charger les missions.");
+        }
+      } finally {
+        if (isMounted) {
+          setMissionsLoading(false);
+        }
+      }
+    };
+
+    loadMissions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser]);
 
   const t = texts[language];
+  const canManageSensitiveData = canManageSensitiveActions(currentUser);
 
   // Vérification automatique des alertes d'expiration (Sous 40 jours)
   useEffect(() => {
+    if (missionsLoading) {
+      setAlerts([]);
+      return;
+    }
+
     const activeAlerts = [];
     const aujourdhui = new Date();
 
@@ -473,7 +600,13 @@ export default function App() {
     });
 
     setAlerts(activeAlerts);
-  }, [missions]);
+  }, [missions, missionsLoading]);
+
+  useEffect(() => {
+    if (missionsError) {
+      console.error("[Mission] Etat de chargement", { message: missionsError });
+    }
+  }, [missionsError]);
 
   // Vérification automatique des alertes de maintenance (matériel non entretenu depuis 180 jours)
   useEffect(() => {
@@ -482,7 +615,7 @@ export default function App() {
     const SEUIL_JOURS = 180;
 
     equipmentList.forEach(eq => {
-      if (eq.status === 'hors_service') return;
+      if (eq.status === 'hors_service' || eq.status === 'out_of_service') return;
       if (!eq.lastMaintenance) return;
 
       const dateMaint = new Date(eq.lastMaintenance);
@@ -512,22 +645,36 @@ export default function App() {
     total: missions.length
   };
 
-  // Enregistrement final et remise à zéro complète du formulaire
-  const handleAddNewMission = (newMission) => {
-    setMissions([newMission, ...missions]);
-    setActiveTab('dashboard');
-    setFormStep(1);
-    setFormData({
-      client: '',
-      type: 'Prise de vues aériennes',
-      region: '',
-      zone: '',
-      zonePoints: [],
-      aerodrome: '',
-      endDate: '',
-      pilot: 'FOUAD SAADI',
-      equipment: 'ULTRACAM FALCON Mark2'
-    });
+  // Apres creation Firestore, recharge la collection pour eviter les doublons locaux.
+  const handleAddNewMission = async () => {
+    setMissionsLoading(true);
+    setMissionsError("");
+
+    try {
+      const loadedMissions = await getAllMissions();
+      setMissions(loadedMissions);
+    } catch (error) {
+      console.error("[Mission] Rechargement apres creation impossible", {
+        code: error?.code,
+        message: error?.message
+      });
+      setMissionsError("Impossible de recharger les missions.");
+    } finally {
+      setMissionsLoading(false);
+      setActiveTab('dashboard');
+      setFormStep(1);
+      setFormData({
+        client: '',
+        type: 'Prise de vues aériennes',
+        region: '',
+        zone: '',
+        zonePoints: [],
+        aerodrome: '',
+        endDate: '',
+        pilot: 'FOUAD SAADI',
+        equipment: ''
+      });
+    }
   };
 
   const isRTL = language === 'ar';
@@ -537,7 +684,7 @@ export default function App() {
 
   // Pas connecté → on affiche l'écran de connexion à la place de l'application
   if (!currentUser) {
-    return <Login onLogin={handleLogin} />;
+    return <Login authMessage={authStatusMessage} />;
   }
 
   return (
@@ -575,7 +722,7 @@ export default function App() {
           />
         )}
         {activeTab === 'authorizations' && (
-          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} />
+          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} canManageSensitiveData={canManageSensitiveData} />
         )}
         {activeTab === 'new-mission' && (
           <NewMission
@@ -586,13 +733,25 @@ export default function App() {
             onNavigate={setActiveTab}
             onSubmit={handleAddNewMission}
             t={t}
+            canManageSensitiveData={canManageSensitiveData}
+            currentUser={currentUser}
+            equipmentList={equipmentList}
           />
         )}
         {activeTab === 'pdf' && (
-          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} />
+          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} canGeneratePdf={canManageSensitiveData} />
         )}
         {activeTab === 'equipment' && (
-          <Equipment equipmentList={equipmentList} setEquipmentList={setEquipmentList} t={t} />
+          <Equipment
+            equipmentList={equipmentList}
+            setEquipmentList={setEquipmentList}
+            t={t}
+            canManageEquipment={canManageSensitiveData}
+            currentUser={currentUser}
+            equipmentLoading={equipmentLoading}
+            equipmentError={equipmentError}
+            onEquipmentChanged={reloadEquipment}
+          />
         )}
         {activeTab === 'settings' && (
           <div style={{ padding: '16px' }}>

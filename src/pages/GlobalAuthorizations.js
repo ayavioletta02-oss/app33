@@ -51,7 +51,7 @@ SEPRET`;
   return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(`${DGAC_EMAIL},${DTA_EMAIL}`)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-export default function GlobalAuthorizations({ missions, onNavigate, t }) {
+export default function GlobalAuthorizations({ missions, onNavigate, t, canManageSensitiveData = false }) {
   const [filter, setFilter] = useState('Toutes');
 
   const filterKeys = {
@@ -75,7 +75,9 @@ export default function GlobalAuthorizations({ missions, onNavigate, t }) {
           <h1 className="main-title" style={{ fontSize: '22px' }}>{t.authorizations.title}</h1>
           <div className="sub-title">{t.authorizations.subtitle}</div>
         </div>
-        <button className="btn-add" onClick={() => onNavigate('new-mission')}>{t.authorizations.newBtn}</button>
+        {canManageSensitiveData && (
+          <button className="btn-add" onClick={() => onNavigate('new-mission')}>{t.authorizations.newBtn}</button>
+        )}
       </div>
 
       {/* Filtres de sélection */}
@@ -117,6 +119,9 @@ export default function GlobalAuthorizations({ missions, onNavigate, t }) {
             <span>📤 {t.authorizations.submittedOn} {m.date}</span>
             <span style={{ color: '#2563eb', cursor: 'pointer', fontWeight: '600' }}>👁️ {t.authorizations.details}</span>
           </div>
+          {/* Controle frontend temporaire : les envois sensibles restent a proteger par les regles Firestore. */}
+          {canManageSensitiveData && (
+            <>
           <div
   style={{
     display: "flex",
@@ -170,6 +175,8 @@ export default function GlobalAuthorizations({ missions, onNavigate, t }) {
           >
             ou ouvrir avec l'application mail
           </a>
+            </>
+          )}
         </div>
       ))}
     </div>

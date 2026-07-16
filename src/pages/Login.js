@@ -1,33 +1,59 @@
 import React, { useState } from "react";
-import { supabase } from "../supabaseClient";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth, isFirebaseConfigured } from "../firebase";
 
-export default function Login({ onLogin }) {
+const getFirebaseAuthErrorMessage = (error) => {
+  switch (error?.code) {
+    case "auth/invalid-credential":
+      return "Identifiants invalides.";
+    case "auth/user-not-found":
+      return "Utilisateur introuvable.";
+    case "auth/wrong-password":
+      return "Mot de passe incorrect.";
+    case "auth/too-many-requests":
+      return "Trop de tentatives. Reessayez plus tard.";
+    case "auth/network-request-failed":
+      return "Erreur reseau. Verifiez votre connexion.";
+    case "auth/invalid-email":
+      return "Adresse email invalide.";
+    default:
+      return "Connexion impossible. Verifiez vos informations.";
+  }
+};
+
+export default function Login({ authMessage = "" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
- const handleSubmit = async (e) => {
-  e.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
 
-  setError("");
+    if (!isFirebaseConfigured || !auth) {
+      console.error("[Firebase Auth] Configuration manquante", {
+        code: "firebase/not-configured",
+        message: "Firebase Authentication n'est pas configure."
+      });
+      setError("Firebase Authentication n'est pas configure.");
+      return;
+    }
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password,
-  });
+    setLoading(true);
 
-  console.log("DATA :", data);
-  console.log("ERROR :", error);
-
-  if (error) {
-    setError(error.message);
-    return;
-  }
-
-  alert("Connexion réussie !");
-  onLogin(data.user);
-};
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+    } catch (authError) {
+      console.error("[Firebase Auth] Echec de connexion", {
+        code: authError?.code,
+        message: authError?.message
+      });
+      setError(getFirebaseAuthErrorMessage(authError));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div
@@ -134,7 +160,7 @@ export default function Login({ onLogin }) {
           }}
         />
 
-        {error && (
+        {(authMessage || error) && (
           <div
             style={{
               color: "#dc2626",
@@ -142,7 +168,7 @@ export default function Login({ onLogin }) {
               fontSize: 14,
             }}
           >
-            {error}
+            {error || authMessage}
           </div>
         )}
 
