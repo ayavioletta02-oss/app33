@@ -4,6 +4,23 @@ import {
   deleteEquipment,
   updateEquipment
 } from '../services/equipmentService';
+import { validateEquipmentForm } from '../utils/validation';
+
+const getEquipmentActionErrorMessage = (error, fallback) => {
+  if (error?.code === "validation/invalid-data") {
+    return "Certains champs du materiel sont invalides.";
+  }
+
+  if (error?.code === "permission-denied") {
+    return "Vous n'avez pas les droits necessaires pour cette action.";
+  }
+
+  if (error?.code === "unavailable" || error?.code === "deadline-exceeded") {
+    return "Connexion Firestore indisponible. Reessayez plus tard.";
+  }
+
+  return fallback;
+};
 
 export default function Equipment({
   equipmentList,
@@ -17,6 +34,7 @@ export default function Equipment({
   const [showForm, setShowForm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [userMessage, setUserMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [newItem, setNewItem] = useState({
     name: '',
     type: 'camera',
@@ -56,6 +74,7 @@ export default function Equipment({
       lastMaintenance: '',
       notes: ''
     });
+    setFieldErrors({});
   };
 
   const reloadAfterAction = async () => {
@@ -64,19 +83,38 @@ export default function Equipment({
     }
   };
 
+  const updateNewItem = (field, value) => {
+    setNewItem((prev) => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const renderFieldError = (field) => fieldErrors[field] ? (
+    <div style={{ color: "#b91c1c", fontSize: "12px", marginTop: "4px", fontWeight: 600 }}>
+      {fieldErrors[field]}
+    </div>
+  ) : null;
+
   const handleAdd = async () => {
     if (!canManageEquipment || actionLoading) return;
 
-    if (!newItem.name.trim()) {
-      setUserMessage("Le nom de l'equipement est obligatoire.");
+    const validation = validateEquipmentForm(newItem);
+
+    if (!validation.isValid) {
+      setFieldErrors(validation.errors);
+      setUserMessage("Corrigez les champs signales avant d'enregistrer l'equipement.");
       return;
     }
 
     setActionLoading(true);
     setUserMessage("");
+    setFieldErrors({});
 
     try {
-      await createEquipment(newItem, currentUser);
+      await createEquipment(validation.normalizedData, currentUser);
       await reloadAfterAction();
       resetForm();
       setShowForm(false);
@@ -87,7 +125,14 @@ export default function Equipment({
         code: error?.code,
         message: error?.message
       });
-      const message = "Impossible d'enregistrer l'equipement. Verifiez votre connexion et vos droits.";
+      if (error?.validationErrors) {
+        setFieldErrors(error.validationErrors);
+      }
+
+      const message = getEquipmentActionErrorMessage(
+        error,
+        "Impossible d'enregistrer l'equipement. Verifiez votre connexion et vos droits."
+      );
       setUserMessage(message);
       alert(message);
     } finally {
@@ -114,7 +159,10 @@ export default function Equipment({
         code: error?.code,
         message: error?.message
       });
-      const message = "Impossible de supprimer l'equipement. Verifiez votre connexion et vos droits.";
+      const message = getEquipmentActionErrorMessage(
+        error,
+        "Impossible de supprimer l'equipement. Verifiez votre connexion et vos droits."
+      );
       setUserMessage(message);
       alert(message);
     } finally {
@@ -125,11 +173,18 @@ export default function Equipment({
   const handleStatusChange = async (id, status) => {
     if (!canManageEquipment || actionLoading) return;
 
+    const validation = validateEquipmentForm({ status }, { partial: true });
+
+    if (!validation.isValid) {
+      setUserMessage(validation.errors.status || "Le statut selectionne est invalide.");
+      return;
+    }
+
     setActionLoading(true);
     setUserMessage("");
 
     try {
-      await updateEquipment(id, { status }, currentUser);
+      await updateEquipment(id, validation.normalizedData, currentUser);
       await reloadAfterAction();
       setUserMessage("Statut du materiel mis a jour.");
       alert("Statut du materiel mis a jour.");
@@ -138,7 +193,10 @@ export default function Equipment({
         code: error?.code,
         message: error?.message
       });
-      const message = "Impossible de modifier le statut. Verifiez votre connexion et vos droits.";
+      const message = getEquipmentActionErrorMessage(
+        error,
+        "Impossible de modifier le statut. Verifiez votre connexion et vos droits."
+      );
       setUserMessage(message);
       alert(message);
     } finally {
@@ -166,7 +224,7 @@ export default function Equipment({
       </div>
 
       {(equipmentLoading || equipmentError || userMessage) && (
-        <div className="card" style={{ fontSize: '13px', color: equipmentError ? '#b91c1c' : '#64748b' }}>
+        <div className="card" style={{ fontSize: '13px', color: equipmentError || Object.keys(fieldErrors).length > 0 ? '#b91c1c' : '#64748b' }}>
           {equipmentLoading ? "Chargement du materiel..." : equipmentError || userMessage}
         </div>
       )}
@@ -176,29 +234,34 @@ export default function Equipment({
           <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', color: 'var(--primary-color)' }}>{t.equipment.formTitle}</h3>
 
           <label>{t.equipment.nameLabel}</label>
-          <input type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} disabled={actionLoading} />
+          <input type="text" value={newItem.name} onChange={e => updateNewItem("name", e.target.value)} disabled={actionLoading} />
+          {renderFieldError("name")}
 
           <label>{t.equipment.typeLabel}</label>
-          <select value={newItem.type} onChange={e => setNewItem({ ...newItem, type: e.target.value })} disabled={actionLoading}>
+          <select value={newItem.type} onChange={e => updateNewItem("type", e.target.value)} disabled={actionLoading}>
             <option value="camera">{t.equipment.types.camera}</option>
             <option value="aircraft">{t.equipment.types.aircraft}</option>
             <option value="drone">{t.equipment.types.drone}</option>
             <option value="accessory">{t.equipment.types.accessory}</option>
           </select>
+          {renderFieldError("type")}
 
           <label>{t.equipment.serialLabel}</label>
-          <input type="text" value={newItem.serial} onChange={e => setNewItem({ ...newItem, serial: e.target.value })} disabled={actionLoading} />
+          <input type="text" value={newItem.serial} onChange={e => updateNewItem("serial", e.target.value)} disabled={actionLoading} />
+          {renderFieldError("serial")}
 
           <label>{t.equipment.statusLabel}</label>
-          <select value={newItem.status} onChange={e => setNewItem({ ...newItem, status: e.target.value })} disabled={actionLoading}>
+          <select value={newItem.status} onChange={e => updateNewItem("status", e.target.value)} disabled={actionLoading}>
             <option value="available">{t.equipment.statusAvailable}</option>
             <option value="in_mission">{t.equipment.statusMission}</option>
             <option value="maintenance">{t.equipment.statusMaintenance}</option>
             <option value="out_of_service">{t.equipment.statusOut}</option>
           </select>
+          {renderFieldError("status")}
 
           <label>{t.equipment.lastMaintenanceLabel}</label>
-          <input type="date" value={newItem.lastMaintenance} onChange={e => setNewItem({ ...newItem, lastMaintenance: e.target.value })} disabled={actionLoading} />
+          <input type="date" value={newItem.lastMaintenance} onChange={e => updateNewItem("lastMaintenance", e.target.value)} disabled={actionLoading} />
+          {renderFieldError("lastMaintenance")}
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
             <button className="btn-back" style={{ flex: 1 }} onClick={() => setShowForm(false)} disabled={actionLoading}>{t.equipment.cancel}</button>

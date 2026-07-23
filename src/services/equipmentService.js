@@ -8,6 +8,11 @@ import {
   updateDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  createValidationError,
+  removeUndefinedFields,
+  validateEquipmentForm
+} from "../utils/validation";
 
 const EQUIPMENT_COLLECTION = "equipment";
 const DEFAULT_STATUS = "available";
@@ -19,37 +24,6 @@ const STATUS_ALIASES = {
   maintenance: "maintenance",
   out_of_service: "out_of_service",
   hors_service: "out_of_service"
-};
-
-const isPlainObject = (value) => (
-  Object.prototype.toString.call(value) === "[object Object]"
-  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-);
-
-const removeUndefinedValues = (value) => {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => removeUndefinedValues(item))
-      .filter((item) => item !== undefined);
-  }
-
-  if (!isPlainObject(value)) {
-    return value;
-  }
-
-  return Object.entries(value).reduce((cleaned, [key, item]) => {
-    if (item === undefined) {
-      return cleaned;
-    }
-
-    const cleanedValue = removeUndefinedValues(item);
-
-    if (cleanedValue !== undefined) {
-      cleaned[key] = cleanedValue;
-    }
-
-    return cleaned;
-  }, {});
 };
 
 const normalizeEquipmentStatus = (status) => {
@@ -114,15 +88,22 @@ export async function createEquipment(equipmentData = {}, currentUser = null) {
 
   try {
     const equipmentRef = collection(db, EQUIPMENT_COLLECTION);
-    const payload = removeUndefinedValues({
-      name: equipmentData.name ?? "",
-      type: equipmentData.type ?? "",
-      serial: equipmentData.serial ?? "",
-      status: normalizeEquipmentStatus(equipmentData.status),
-      model: equipmentData.model ?? "",
-      registration: equipmentData.registration ?? "",
-      lastMaintenance: equipmentData.lastMaintenance ?? "",
-      notes: equipmentData.notes ?? "",
+    const validation = validateEquipmentForm(equipmentData);
+
+    if (!validation.isValid) {
+      throw createValidationError("Donnees materiel invalides.", validation.errors);
+    }
+
+    const cleanEquipment = validation.normalizedData;
+    const payload = removeUndefinedFields({
+      name: cleanEquipment.name,
+      type: cleanEquipment.type,
+      serial: cleanEquipment.serial,
+      status: cleanEquipment.status,
+      model: cleanEquipment.model,
+      registration: cleanEquipment.registration,
+      lastMaintenance: cleanEquipment.lastMaintenance,
+      notes: cleanEquipment.notes,
       createdBy: currentUser.uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
@@ -150,12 +131,30 @@ export async function updateEquipment(equipmentId, updates = {}, currentUser = n
   }
 
   try {
-    const { createdBy, createdAt, id, firestoreId, ...allowedUpdates } = updates;
-    const payload = removeUndefinedValues({
-      ...allowedUpdates,
-      status: updates.status === undefined ? undefined : normalizeEquipmentStatus(updates.status),
+    const validation = validateEquipmentForm(updates, { partial: true });
+
+    if (!validation.isValid) {
+      throw createValidationError("Donnees materiel invalides.", validation.errors);
+    }
+
+    const cleanUpdates = validation.normalizedData;
+    const payload = removeUndefinedFields({
+      name: cleanUpdates.name,
+      type: cleanUpdates.type,
+      serial: cleanUpdates.serial,
+      status: cleanUpdates.status,
+      model: cleanUpdates.model,
+      registration: cleanUpdates.registration,
+      lastMaintenance: cleanUpdates.lastMaintenance,
+      notes: cleanUpdates.notes,
       updatedAt: serverTimestamp()
     });
+
+    if (Object.keys(payload).length === 1) {
+      throw createValidationError("Aucune modification materiel valide.", {
+        updates: "Aucun champ modifiable valide n'a ete fourni."
+      });
+    }
 
     await updateDoc(doc(db, EQUIPMENT_COLLECTION, equipmentId), payload);
   } catch (error) {

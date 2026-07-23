@@ -1,5 +1,10 @@
 import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  createValidationError,
+  removeUndefinedFields,
+  validateMissionPayload
+} from "../utils/validation";
 
 const MISSIONS_COLLECTION = "missions";
 const DEFAULT_STATUS = "pending";
@@ -16,43 +21,22 @@ const STATUS_ALIASES = {
   canceled: "cancelled"
 };
 
-const isPlainObject = (value) => (
-  Object.prototype.toString.call(value) === "[object Object]"
-  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-);
-
-const removeUndefinedValues = (value) => {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => removeUndefinedValues(item))
-      .filter((item) => item !== undefined);
-  }
-
-  if (!isPlainObject(value)) {
-    return value;
-  }
-
-  return Object.entries(value).reduce((cleaned, [key, item]) => {
-    if (item === undefined) {
-      return cleaned;
-    }
-
-    const cleanedValue = removeUndefinedValues(item);
-
-    if (cleanedValue !== undefined) {
-      cleaned[key] = cleanedValue;
-    }
-
-    return cleaned;
-  }, {});
-};
-
 const normalizeMissionStatus = (status) => {
+  if (status === undefined || status === null || status === "") {
+    return DEFAULT_STATUS;
+  }
+
   const normalized = typeof status === "string"
     ? status.trim().toLowerCase()
-    : DEFAULT_STATUS;
+    : "";
 
-  return STATUS_ALIASES[normalized] || DEFAULT_STATUS;
+  if (!STATUS_ALIASES[normalized]) {
+    throw createValidationError("Statut de mission invalide.", {
+      status: "Le statut de mission selectionne n'est pas autorise."
+    });
+  }
+
+  return STATUS_ALIASES[normalized];
 };
 
 export async function getAllMissions() {
@@ -104,40 +88,43 @@ export async function createMission(missionData = {}, currentUser = null) {
 
   try {
     const missionsRef = collection(db, MISSIONS_COLLECTION);
-    const assignedPilotId = typeof missionData.assignedPilotId === "string" && missionData.assignedPilotId.trim()
-      ? missionData.assignedPilotId.trim()
-      : null;
-    const missionPayload = removeUndefinedValues({
+    const validation = validateMissionPayload(missionData);
+
+    if (!validation.isValid) {
+      throw createValidationError("Donnees de mission invalides.", validation.errors);
+    }
+
+    const cleanMission = validation.normalizedData;
+    const missionPayload = removeUndefinedFields({
       number: missionData.number ?? Date.now(),
-      name: missionData.name ?? missionData.clientName ?? "Mission sans client",
-      clientName: missionData.clientName ?? missionData.name ?? "",
-      missionType: missionData.missionType ?? missionData.type ?? "",
-      zone: missionData.zone ?? missionData.location?.zoneLabel ?? "",
-      date: missionData.date ?? "",
-      expiryDate: missionData.expiryDate ?? "",
+      name: cleanMission.client,
+      clientName: cleanMission.client,
+      missionType: cleanMission.missionType,
+      zone: cleanMission.zone,
+      date: cleanMission.date,
+      expiryDate: cleanMission.expiryDate,
       status: normalizeMissionStatus(missionData.status),
-      pilot: missionData.pilot ?? "",
-      assignedPilotId,
-      equipment: missionData.equipment ?? "",
-      equipmentIds: Array.isArray(missionData.equipmentIds) ? missionData.equipmentIds : [],
+      assignedPilotId: cleanMission.assignedPilotId,
+      equipment: cleanMission.equipment,
+      equipmentIds: cleanMission.equipmentIds,
       createdBy: currentUser.uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       location: {
-        region: missionData.location?.region,
-        province: missionData.location?.province,
-        commune: missionData.location?.commune,
-        airportCode: missionData.location?.airportCode,
-        zoneLabel: missionData.location?.zoneLabel
+        region: cleanMission.region,
+        province: cleanMission.province,
+        commune: cleanMission.commune,
+        airportCode: cleanMission.airport,
+        zoneLabel: cleanMission.zone
       },
       flight: {
-        altitude: missionData.flight?.altitude,
-        duration: missionData.flight?.duration,
-        aircraftType: missionData.flight?.aircraftType,
-        drone: missionData.flight?.drone
+        altitude: cleanMission.altitude,
+        duration: cleanMission.duration,
+        aircraftType: cleanMission.aircraftType,
+        drone: cleanMission.drone
       },
-      zonePoints: Array.isArray(missionData.zonePoints) ? missionData.zonePoints : [],
-      weather: missionData.weather ?? null
+      zonePoints: cleanMission.zonePoints,
+      weather: cleanMission.weather
     });
 
     const missionRef = await addDoc(missionsRef, missionPayload);

@@ -4,6 +4,7 @@ import { EditControl } from "react-leaflet-draw";
 import * as turf from "@turf/turf";
 import { createMission } from "../services/missionService";
 import { getPilotDisplayName } from "../utils/pilotDisplay";
+import { MISSION_TYPES, validateMissionForm } from "../utils/validation";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -139,20 +140,6 @@ const AEROPORTS_MAROC = [
   { code: "GMMF", name: "Casablanca - Tit Mellil", coords: [33.5933, -7.4633] }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-const MISSION_TYPES = [
-  "Prise de vues aériennes (Photos / Vidéos)",
-  "Topographie & Photogrammétrie",
-  "Inspection technique d'ouvrages d'art",
-  "Surveillance de chantiers & Infrastructures",
-  "Agriculture de précision",
-  "Thermographie aérienne"
-];
-
-const parseOptionalNumber = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
 const getEquipmentLabel = (equipment) => (
   [equipment.name, equipment.serial].filter(Boolean).join(" - ") || equipment.name || "Materiel sans nom"
 );
@@ -170,6 +157,40 @@ function ChangeView({ center, zoom }) {
   useEffect(() => { if (center) map.setView(center, zoom); }, [center, zoom, map]);
   return null;
 }
+
+const getFirstMissionErrorStep = (errors) => {
+  const fields = Object.keys(errors || {});
+
+  if (fields.some((field) => ["client", "missionType", "region", "province", "commune"].includes(field))) {
+    return 1;
+  }
+
+  if (fields.some((field) => ["aircraftType", "equipmentId", "equipmentIds", "assignedPilotId", "altitude", "duration"].includes(field))) {
+    return 2;
+  }
+
+  if (fields.some((field) => ["airport", "zonePoints", "weather"].includes(field))) {
+    return 3;
+  }
+
+  return 5;
+};
+
+const getMissionSubmitErrorMessage = (error) => {
+  if (error?.code === "validation/invalid-data") {
+    return "Certains champs de la mission sont invalides.";
+  }
+
+  if (error?.code === "permission-denied") {
+    return "Vous n'avez pas les droits necessaires pour creer cette mission.";
+  }
+
+  if (error?.code === "unavailable" || error?.code === "deadline-exceeded") {
+    return "Connexion Firestore indisponible. Reessayez plus tard.";
+  }
+
+  return "Impossible d'enregistrer la mission. Verifiez votre connexion et vos droits.";
+};
 
 export default function AppPortal({
   onSubmit,
@@ -210,12 +231,20 @@ export default function AppPortal({
   const [mapZoom, setMapZoom] = useState(6);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [validationErrors, setValidationErrors] = useState({});
   const compatibleEquipment = equipmentList.filter((equipment) => matchesAircraftType(equipment, formData.aircraftType));
-  const selectedEquipment = equipmentList.find((equipment) => equipment.id === formData.equipmentId) || null;
   const selectedPilot = pilots.find((pilot) => pilot.uid === formData.assignedPilotId) || null;
   const selectedPilotDisplayName = selectedPilot
     ? getPilotDisplayName(selectedPilot)
     : formData.pilot;
+
+  const clearValidationErrors = (fields) => {
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      fields.forEach((field) => delete next[field]);
+      return next;
+    });
+  };
 
   const handlePilotChange = (pilotUid) => {
     const pilot = pilots.find((item) => item.uid === pilotUid) || null;
@@ -225,7 +254,14 @@ export default function AppPortal({
       assignedPilotId: pilotUid,
       pilot: pilot ? getPilotDisplayName(pilot) : ""
     }));
+    clearValidationErrors(["assignedPilotId"]);
   };
+
+  const renderFieldError = (field) => validationErrors[field] ? (
+    <div style={{ color: "#b91c1c", fontSize: "12px", marginTop: "6px", fontWeight: 600 }}>
+      {validationErrors[field]}
+    </div>
+  ) : null;
 
   const nextStep = () => {
     if (step < TOTAL_STEPS) {
@@ -247,43 +283,70 @@ export default function AppPortal({
       return;
     }
 
-    const zoneLabel = [formData.commune, formData.province, formData.region]
+    const validation = validateMissionForm(formData, { allowedMissionTypes: MISSION_TYPES });
+
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors);
+      setSaveError("Corrigez les champs signales avant de soumettre la mission.");
+      setStep(getFirstMissionErrorStep(validation.errors));
+      return;
+    }
+
+    const cleanForm = validation.normalizedData;
+    const selectedValidatedEquipment = equipmentList.find((equipment) => equipment.id === cleanForm.equipmentId) || null;
+
+    if (!selectedValidatedEquipment) {
+      const errors = { equipmentId: "Le materiel selectionne est introuvable ou indisponible." };
+      setValidationErrors(errors);
+      setSaveError("Corrigez les champs signales avant de soumettre la mission.");
+      setStep(2);
+      return;
+    }
+
+    if (!selectedPilot) {
+      const errors = { assignedPilotId: "Le pilote selectionne est introuvable ou indisponible." };
+      setValidationErrors(errors);
+      setSaveError("Corrigez les champs signales avant de soumettre la mission.");
+      setStep(2);
+      return;
+    }
+
+    const zoneLabel = [cleanForm.commune, cleanForm.province, cleanForm.region]
       .filter(Boolean)
-      .join(" - ") || formData.airport || "Zone non renseignee";
-    const assignedPilotId = formData.assignedPilotId || null;
+      .join(" - ") || cleanForm.airport || "Zone non renseignee";
 
     const missionData = {
       number: Date.now(),
-      name: formData.client || formData.company || "Mission sans client",
-      clientName: formData.client || formData.company || "",
-      missionType: formData.missionType || "Prise de vues aeriennes",
+      name: cleanForm.client,
+      clientName: cleanForm.client,
+      missionType: cleanForm.missionType,
       zone: zoneLabel,
       date: new Date().toISOString().slice(0, 10),
-      expiryDate: "",
+      expiryDate: cleanForm.expiryDate,
       status: "pending",
-      pilot: formData.pilot || "",
-      assignedPilotId,
-      equipment: selectedEquipment ? selectedEquipment.name : formData.drone || formData.aircraftType || "",
-      equipmentIds: selectedEquipment ? [selectedEquipment.id] : [],
+      assignedPilotId: cleanForm.assignedPilotId,
+      equipment: selectedValidatedEquipment.name || cleanForm.aircraftType,
+      equipmentIds: cleanForm.equipmentIds,
       location: {
-        region: formData.region,
-        province: formData.province,
-        commune: formData.commune,
-        airportCode: formData.airport,
+        region: cleanForm.region,
+        province: cleanForm.province,
+        commune: cleanForm.commune,
+        airportCode: cleanForm.airport,
         zoneLabel
       },
       flight: {
-        altitude: parseOptionalNumber(formData.altitude),
-        duration: parseOptionalNumber(formData.duration),
-        aircraftType: formData.aircraftType,
-        drone: selectedEquipment ? selectedEquipment.name : formData.drone
+        altitude: cleanForm.altitude,
+        duration: cleanForm.duration,
+        aircraftType: cleanForm.aircraftType,
+        drone: selectedValidatedEquipment.name
       },
-      zonePoints: formData.zonePoints,
-      weather: formData.weather
+      zonePoints: cleanForm.zonePoints,
+      weather: cleanForm.weather
     };
 
     setIsSaving(true);
     setSaveError("");
+    setValidationErrors({});
 
     try {
       const createdMissionId = await createMission(missionData, currentUser);
@@ -322,7 +385,12 @@ export default function AppPortal({
         message: error?.message
       });
 
-      const message = "Impossible d'enregistrer la mission. Verifiez votre connexion et vos droits.";
+      if (error?.validationErrors) {
+        setValidationErrors(error.validationErrors);
+        setStep(getFirstMissionErrorStep(error.validationErrors));
+      }
+
+      const message = getMissionSubmitErrorMessage(error);
       setSaveError(message);
       alert(message);
     } finally {
@@ -348,6 +416,15 @@ export default function AppPortal({
       }
       return updated;
     });
+
+    const relatedErrors = {
+      region: ["region", "province", "commune"],
+      province: ["province", "commune"],
+      aircraftType: ["aircraftType", "equipmentId", "equipmentIds"],
+      equipmentId: ["equipmentId", "equipmentIds"],
+      zonePoints: ["zonePoints"]
+    };
+    clearValidationErrors(relatedErrors[field] || [field]);
   };
 
   // ⚠️ CORRECTION : react-leaflet-draw appelle onCreated avec l'ÉVÉNEMENT complet
@@ -467,6 +544,7 @@ export default function AppPortal({
                   <div className="form-group">
                     <label>Exploitant / Client *</label>
                     <input type="text" placeholder="Ex: Agence du Bassin Hydraulique..." value={formData.client} onChange={(e) => updateField("client", e.target.value)} />
+                    {renderFieldError("client")}
                   </div>
 
                   <div className="form-group">
@@ -475,6 +553,7 @@ export default function AppPortal({
                       <option value="">Sélectionner le type...</option>
                       {MISSION_TYPES.map((m, i) => <option key={i} value={m}>{m}</option>)}
                     </select>
+                    {renderFieldError("missionType")}
                   </div>
 
                   <div className="form-group">
@@ -483,6 +562,7 @@ export default function AppPortal({
                       <option value="">Choisir la région...</option>
                       {Object.keys(GEOGRAPHY_DATA).map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
+                    {renderFieldError("region")}
                   </div>
 
                   <div className="form-group">
@@ -491,6 +571,7 @@ export default function AppPortal({
                       <option value="">Choisir la province...</option>
                       {formData.region && Object.keys(GEOGRAPHY_DATA[formData.region]).map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
+                    {renderFieldError("province")}
                   </div>
 
                   <div className="form-group">
@@ -499,6 +580,7 @@ export default function AppPortal({
                       <option value="">Choisir la commune...</option>
                       {formData.region && formData.province && GEOGRAPHY_DATA[formData.region][formData.province].map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
+                    {renderFieldError("commune")}
                   </div>
                 </div>
               )}
@@ -544,6 +626,8 @@ export default function AppPortal({
                         <option key={equipment.id} value={equipment.id}>{getEquipmentLabel(equipment)}</option>
                       ))}
                     </select>
+                    {renderFieldError("equipmentId")}
+                    {renderFieldError("equipmentIds")}
                   </div>
 
                   <div className="form-group">
@@ -575,6 +659,7 @@ export default function AppPortal({
                         {pilotsError}
                       </div>
                     )}
+                    {renderFieldError("assignedPilotId")}
                     {!pilotsLoading && !pilotsError && pilots.length === 0 && (
                       <div style={{ color: "#92400e", fontSize: "12px", marginTop: "6px", fontWeight: 600 }}>
                         Aucun pilote actif n'existe dans les profils Firebase.
@@ -585,6 +670,7 @@ export default function AppPortal({
                   <div className="form-group">
                     <label>Altitude maximale de vol (mètres AGL)</label>
                     <input type="number" value={formData.altitude} onChange={(e) => updateField("altitude", e.target.value)} />
+                    {renderFieldError("altitude")}
                   </div>
                 </div>
               )}
@@ -624,6 +710,7 @@ export default function AppPortal({
                     <div className="map-data-card"><span style={{fontSize: "1.2rem"}}>📐</span><span style={{fontSize: "0.75rem", color: "#64748b"}}>Surface</span><span className="value-badge">{surface} ha</span></div>
                     <div className="map-data-card"><span style={{fontSize: "1.2rem"}}>📏</span><span style={{fontSize: "0.75rem", color: "#64748b"}}>Périmètre</span><span className="value-badge">{perimeter} m</span></div>
                   </div>
+                  {renderFieldError("zonePoints")}
                 </div>
               )}
 

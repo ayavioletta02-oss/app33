@@ -371,3 +371,94 @@ Pour autoriser aussi les pilotes a lire les informations publiques des autres pi
 ### Prochaine etape
 
 Tester la Phase 3.6 avec un compte admin, un compte pilote actif, un pilote desactive et au moins une ancienne mission, puis ajuster les regles Firestore dans l'emulateur ou le Rules Playground avant publication.
+
+## Phase 4.2 - Validation et normalisation des donnees
+
+Cette phase ajoute une validation applicative ciblee sur les modules Missions et Equipment. Elle ne modifie pas Firebase Authentication, les profils, les pilotes, les dependances, Supabase, `weather.js`, les pages PDF/Login/GlobalAuthorizations, ni `firestore.rules`.
+
+### Helper commun
+
+Un helper sans dependance externe centralise les controles dans `src/utils/validation.js` :
+
+- `normalizeText(value, maxLength)`
+- `normalizeOptionalText(value, maxLength)`
+- `normalizeStringArray(values, maxItems, maxItemLength)`
+- `isValidDateString(value)`
+- `isValidNumber(value, min, max)`
+- `isValidCoordinates(latitude, longitude)`
+- `removeUndefinedFields(object)`
+- `validateMissionForm(formData)`
+- `validateMissionPayload(missionData)`
+- `validateEquipmentForm(formData)`
+
+Les chaines sont tronquees par refus, pas par coupe silencieuse : une valeur trop longue retourne une erreur en francais. Les champs invalides ne sont pas convertis silencieusement, notamment les nombres vides ou `null`. Les valeurs `undefined` sont retirees recursivement avant ecriture Firestore.
+
+### Validations Missions
+
+Le formulaire Nouvelle mission valide maintenant avant `createMission()` :
+
+- client obligatoire, chaine trimmee, maximum 120 caracteres ;
+- type de mission obligatoire, dans la liste reelle de l'interface ;
+- region, province et commune obligatoires, maximum 100 caracteres chacune ;
+- type d'appareil limite a `Drone` ou `Avion` ;
+- materiel obligatoire via un identifiant non vide, maximum 128 caracteres ;
+- pilote obligatoire via `assignedPilotId`, maximum 128 caracteres ;
+- altitude finie entre 0 et 1000 ;
+- duree finie entre 1 et 1440 minutes ;
+- zone de vol contenant 3 a 100 points ;
+- longitude entre -180 et 180, latitude entre -90 et 90 ;
+- date de fin optionnelle mais valide au format `AAAA-MM-JJ`, et non anterieure a la date mission si elle existe ;
+- donnees meteo optionnelles avec nombres finis et condition texte limitee.
+
+`NewMission.js` bloque la soumission si la validation echoue, affiche les erreurs pres des champs existants quand c'est possible, revient vers l'etape du wizard concernee, conserve toutes les valeurs saisies et ne reinitialise le formulaire qu'apres succes Firestore.
+
+`missionService.js` refait une validation defensive avec `validateMissionPayload()`, construit explicitement une whitelist de champs Firestore, force `createdBy` avec `currentUser.uid`, conserve `createdAt` et `updatedAt` via `serverTimestamp()`, et ne cree plus le champ historique `pilot` pour les nouvelles missions. La compatibilite de lecture des anciennes missions avec `pilot` reste conservee dans `getAllMissions()`.
+
+### Validations Equipment
+
+Le formulaire Equipment valide maintenant :
+
+- `name` obligatoire, trim, maximum 120 caracteres ;
+- `type` obligatoire dans `camera`, `aircraft`, `drone`, `accessory` ;
+- `serial` optionnel, trim, maximum 100 caracteres ;
+- `status` dans `available`, `in_mission`, `maintenance`, `out_of_service` ;
+- `model` optionnel, maximum 100 caracteres ;
+- `registration` optionnel, maximum 100 caracteres ;
+- `notes` optionnel, maximum 1000 caracteres ;
+- `lastMaintenance` optionnel, date valide ou `null`.
+
+`Equipment.js` affiche les erreurs en francais, conserve les donnees saisies apres erreur, bloque les doubles actions avec `actionLoading`, garde le controle UI admin et conserve la confirmation existante avant suppression.
+
+`equipmentService.js` remplace le spread large de mise a jour par une whitelist explicite : `name`, `type`, `serial`, `status`, `model`, `registration`, `lastMaintenance`, `notes`. Les champs `createdAt`, `createdBy`, `id` et `firestoreId` ne sont jamais acceptes comme mises a jour. `updatedAt` vient toujours de `serverTimestamp()`.
+
+### Gestion des erreurs
+
+Les modules Missions et Equipment distinguent maintenant :
+
+- erreur de validation : message de correction de champs ;
+- `permission-denied` : message de droits insuffisants ;
+- `unavailable` ou `deadline-exceeded` : message reseau/Firestore indisponible ;
+- autre erreur : message generique.
+
+Les `console.error` restent limites au code et au message d'erreur. Les formulaires complets, tokens, emails sensibles et objets Firebase Auth ne sont pas journalises.
+
+### Suivi des constats Phase 4.1
+
+- SEC-01 : ouvert. `firestore.rules` contient toujours `allow list: if false` sur `profiles`, car cette sous-phase interdit de modifier les rules.
+- SEC-02 : ouvert. La validation de schema dans Firestore Rules reste prevue en Phase 4.4.
+- SEC-03 : traite cote service applicatif. `equipmentService.updateEquipment()` utilise maintenant une whitelist explicite.
+- SEC-04 : traite cote formulaire et service applicatif pour la creation mission. La protection serveur finale reste a ajouter dans les rules.
+- SEC-05 : traite cote `NewMission.js` avec validation, erreurs champ et conservation du formulaire.
+- SEC-06 : traite cote `Equipment.js` et `equipmentService.js` avec validation, erreurs champ et whitelist.
+
+### Limites restantes
+
+- Les controles client et services React ne remplacent pas les Firestore Security Rules.
+- Les regles Firestore ne valident toujours pas le schema des documents `missions` et `equipment`.
+- `assignedPilotId` n'est pas encore verifie cote rules contre un profil pilote actif.
+- La reservation transactionnelle du materiel reste hors scope.
+- Les champs `model`, `registration` et `notes` sont valides par le service, mais ne sont pas encore exposes dans le formulaire actuel.
+
+### Prochaine etape
+
+Phase 4.3 : renforcer les services et flux metier restants si necessaire, puis Phase 4.4 pour porter les validations critiques dans `firestore.rules`.
