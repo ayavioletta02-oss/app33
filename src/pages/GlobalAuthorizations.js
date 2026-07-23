@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
+import { resolveMissionPilotName } from "../utils/pilotDisplay";
 
 // ⚠️ Remplace ces adresses par les vraies adresses officielles de la DGAC et de la DTA
 const DGAC_EMAIL = "dgac@aviation.gov.ma";
 const DTA_EMAIL = "dta@aviation.gov.ma";
 
 // Construit le lien mailto pré-rempli avec les informations du dossier
-function buildMailto(mission) {
+function buildMailto(mission, pilotName) {
   const subject = encodeURIComponent(`Demande d'autorisation de vol PVA - Dossier N°${mission.id}`);
   const body = encodeURIComponent(
 `Bonjour,
@@ -16,7 +17,7 @@ Dossier N° : ${mission.id}
 Client : ${mission.name}
 Type de mission : ${mission.type}
 Zone : ${mission.zone}
-Pilote : ${mission.pilot}
+Pilote : ${pilotName}
 Équipement : ${mission.equipment}
 Date de fin de validité souhaitée : ${mission.expiryDate || 'N/A'}
 
@@ -29,7 +30,7 @@ SEPRET`
 }
 
 // Lien Gmail web : marche toujours dans le navigateur, sans appli mail configurée
-function buildGmailLink(mission) {
+function buildGmailLink(mission, pilotName) {
   const subject = `Demande d'autorisation de vol PVA - Dossier N°${mission.id}`;
   const body =
 `Bonjour,
@@ -40,7 +41,7 @@ Dossier N° : ${mission.id}
 Client : ${mission.name}
 Type de mission : ${mission.type}
 Zone : ${mission.zone}
-Pilote : ${mission.pilot}
+Pilote : ${pilotName}
 Équipement : ${mission.equipment}
 Date de fin de validité souhaitée : ${mission.expiryDate || 'N/A'}
 
@@ -51,7 +52,7 @@ SEPRET`;
   return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(`${DGAC_EMAIL},${DTA_EMAIL}`)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-export default function GlobalAuthorizations({ missions, onNavigate, t, canManageSensitiveData = false }) {
+export default function GlobalAuthorizations({ missions, onNavigate, t, canManageSensitiveData = false, pilots = [] }) {
   const [filter, setFilter] = useState('Toutes');
 
   const filterKeys = {
@@ -99,7 +100,10 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
       </div>
 
       {/* Cartes de Demandes */}
-      {filteredMissions.map((m) => (
+      {filteredMissions.map((m) => {
+        const pilotName = resolveMissionPilotName(m, pilots);
+
+        return (
         <div className="card" key={m.id} style={{ position: 'relative' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
             <span style={{ backgroundColor: '#eff6ff', color: '#1e40af', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700' }}>
@@ -131,7 +135,7 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
   }}
 >
   <a
-    href={buildGmailLink(m)}
+    href={buildGmailLink(m, pilotName)}
     target="_blank"
     rel="noopener noreferrer"
     style={{
@@ -151,7 +155,7 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
   </a>
 
   <a
-    href={buildMailto(m)}
+    href={buildMailto(m, pilotName)}
     style={{
       width: "48px",
       height: "48px",
@@ -170,7 +174,7 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
   </a>
 </div>
           <a
-            href={buildMailto(m)}
+            href={buildMailto(m, pilotName)}
             style={{ display: 'block', textAlign: 'center', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}
           >
             ou ouvrir avec l'application mail
@@ -178,7 +182,8 @@ export default function GlobalAuthorizations({ missions, onNavigate, t, canManag
             </>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

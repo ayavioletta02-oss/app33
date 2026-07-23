@@ -9,7 +9,7 @@ import PDFGenerator from "./pages/PDFGenerator";
 import Equipment from "./pages/Equipment";
 import Login from "./pages/Login";
 import { auth, isFirebaseConfigured } from "./firebase";
-import { getProfile } from "./services/profileService";
+import { getActivePilots, getProfile } from "./services/profileService";
 import { getAllMissions } from "./services/missionService";
 import { getAllEquipment } from "./services/equipmentService";
 
@@ -367,6 +367,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [authStatusMessage, setAuthStatusMessage] = useState("");
+  const [pilots, setPilots] = useState([]);
+  const [pilotsLoading, setPilotsLoading] = useState(false);
+  const [pilotsError, setPilotsError] = useState("");
 
   useEffect(() => {
     localStorage.removeItem("sepret_user");
@@ -497,6 +500,52 @@ export default function App() {
     }
   }, []);
 
+  const reloadPilots = useCallback(async () => {
+    setPilotsLoading(true);
+    setPilotsError("");
+
+    try {
+      const loadedPilots = await getActivePilots();
+      const dedupedPilots = Array.from(
+        loadedPilots.reduce((byUid, pilot) => {
+          if (pilot.uid && !byUid.has(pilot.uid)) {
+            byUid.set(pilot.uid, pilot);
+          }
+
+          return byUid;
+        }, new Map()).values()
+      );
+
+      setPilots(dedupedPilots);
+    } catch (error) {
+      console.error("[Profile] Chargement des pilotes actifs impossible", {
+        code: error?.code,
+        message: error?.message
+      });
+
+      setPilots([]);
+
+      if (error?.code === "permission-denied") {
+        setPilotsError("Impossible de charger les pilotes actifs. Verifiez les regles Firestore.");
+      } else {
+        setPilotsError("Impossible de charger les pilotes actifs.");
+      }
+    } finally {
+      setPilotsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setPilots([]);
+      setPilotsLoading(false);
+      setPilotsError("");
+      return undefined;
+    }
+
+    reloadPilots();
+  }, [currentUser, reloadPilots]);
+
   useEffect(() => {
     if (!currentUser) {
       setEquipmentList([]);
@@ -517,7 +566,8 @@ export default function App() {
     zonePoints: [],
     aerodrome: '',
     endDate: '',
-    pilot: 'FOUAD SAADI',
+    assignedPilotId: null,
+    pilot: '',
     equipment: ''
   });
 
@@ -671,7 +721,8 @@ export default function App() {
         zonePoints: [],
         aerodrome: '',
         endDate: '',
-        pilot: 'FOUAD SAADI',
+        assignedPilotId: null,
+        pilot: '',
         equipment: ''
       });
     }
@@ -719,10 +770,11 @@ export default function App() {
             missions={missions}
             onNavigate={setActiveTab}
             t={t}
+            pilots={pilots}
           />
         )}
         {activeTab === 'authorizations' && (
-          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} canManageSensitiveData={canManageSensitiveData} />
+          <GlobalAuthorizations missions={missions} onNavigate={setActiveTab} t={t} canManageSensitiveData={canManageSensitiveData} pilots={pilots} />
         )}
         {activeTab === 'new-mission' && (
           <NewMission
@@ -736,10 +788,14 @@ export default function App() {
             canManageSensitiveData={canManageSensitiveData}
             currentUser={currentUser}
             equipmentList={equipmentList}
+            pilots={pilots}
+            pilotsLoading={pilotsLoading}
+            pilotsError={pilotsError}
+            onReloadPilots={reloadPilots}
           />
         )}
         {activeTab === 'pdf' && (
-          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} canGeneratePdf={canManageSensitiveData} />
+          <PDFGenerator missions={missions} onNavigate={setActiveTab} t={t} canGeneratePdf={canManageSensitiveData} pilots={pilots} />
         )}
         {activeTab === 'equipment' && (
           <Equipment

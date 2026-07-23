@@ -289,3 +289,85 @@ La reservation transactionnelle du materiel n'est pas encore implementee. Un mat
 ### Prochaine etape
 
 Lier les pilotes aux profils Firestore et remplacer les libelles pilotes par des UID fiables afin de renseigner `assignedPilotId` dans les missions.
+
+## Phase 3.6 - Liaison des pilotes aux missions
+
+Cette phase supprime la liste statique des pilotes et utilise `profiles` comme source unique des pilotes selectionnables.
+
+### Suppression de la liste statique
+
+- `NewMission.js` n'utilise plus `PILOTS_LIST`.
+- `src/data/pilots.js` a ete supprime car aucun import actif ne l'utilisait encore.
+- Aucun document `pilots` separe n'a ete cree.
+- Firebase Authentication n'a pas ete modifie.
+
+### Source Firestore
+
+Les pilotes actifs sont charges depuis `profiles` avec `getActivePilots()` :
+
+- collection lue : `profiles`
+- filtres Firestore : `role == "pilot"` et `disabled == false`
+- champs retournes au frontend : `uid`, `email`, `displayName`, `role`, `disabled`
+- tri effectue cote JavaScript sur `displayName`, avec fallback `email`
+
+La requete reste composee uniquement de filtres d'egalite. Firestore peut utiliser les index automatiques simples pour ce type de requete ; aucun tri Firestore n'est ajoute.
+
+### Reference mission
+
+Le champ technique d'affectation est maintenant :
+
+- `assignedPilotId` : UID Firebase du pilote selectionne
+
+Le champ historique `pilot` peut rester present comme libelle de compatibilite, mais il n'est plus la source de verite et ne doit jamais etre utilise comme identifiant technique.
+
+### Resolution d'affichage
+
+L'affichage utilise la logique suivante :
+
+1. si `assignedPilotId` existe, chercher le profil dans la liste `pilots` deja chargee ;
+2. si le profil est trouve, afficher son `displayName` ou son `email` ;
+3. sinon utiliser temporairement l'ancien champ `pilot` ;
+4. sinon afficher `Pilote non affecte`.
+
+Cette resolution est centralisee dans `src/utils/pilotDisplay.js` et evite toute lecture Firestore individuelle par mission.
+
+### Compatibilite anciennes missions
+
+Les missions existantes ne sont pas migrees automatiquement. Les formats suivants restent affichables :
+
+- `pilot` sous forme de nom ;
+- `assignedPilotId` a `null` ;
+- `assignedPilotId` absent.
+
+Une migration de donnees pourra etre preparee plus tard, mais seulement apres validation explicite.
+
+### Regles Firestore
+
+Les regles actuelles de `firestore.rules` autorisent seulement `get` sur son propre profil et refusent `list` sur `profiles`. Dans cet etat, le chargement global des pilotes actifs echouera avec `permission-denied`.
+
+Regle minimale recommandee pour permettre a l'admin de charger les pilotes actifs sans elargir les droits d'ecriture :
+
+```js
+match /profiles/{uid} {
+  allow get: if signedIn() && request.auth.uid == uid;
+  allow list: if isAdmin()
+    && resource.data.role == "pilot"
+    && resource.data.disabled == false;
+  allow create, update, delete: if false;
+}
+```
+
+Avec cette regle, la requete frontend doit conserver les filtres `where("role", "==", "pilot")` et `where("disabled", "==", false)`.
+
+Pour autoriser aussi les pilotes a lire les informations publiques des autres pilotes, il faut d'abord confirmer que `profiles` ne contient aucun champ sensible supplementaire, car les Firestore Security Rules ne masquent pas les champs d'un document. Si cette condition est vraie, `isPilot()` peut etre ajoute a la condition `allow list`. Sinon, conserver la lecture globale reservee a l'admin.
+
+### Limites restantes
+
+- Les regles recommandees doivent etre relues, testees puis deployees manuellement.
+- Les anciens documents peuvent encore contenir `pilot` comme libelle historique.
+- Aucun workflow de changement d'affectation pilote n'est encore implemente.
+- Aucune migration automatique n'a ete executee.
+
+### Prochaine etape
+
+Tester la Phase 3.6 avec un compte admin, un compte pilote actif, un pilote desactive et au moins une ancienne mission, puis ajuster les regles Firestore dans l'emulateur ou le Rules Playground avant publication.

@@ -12,6 +12,7 @@ import {
   YAxis,
   Tooltip
 } from "recharts";
+import { resolveMissionPilotName } from "../utils/pilotDisplay";
 
 const COLORS = [
   "#10b981",
@@ -28,7 +29,8 @@ export default function Dashboard({
   stats,
   missions,
   onNavigate,
-  t
+  t,
+  pilots = []
 }) {
 
   const [search, setSearch] = useState("");
@@ -61,7 +63,7 @@ export default function Dashboard({
 
         ||
 
-        (mission.pilot || "").toLowerCase().includes(value)
+        resolveMissionPilotName(mission, pilots).toLowerCase().includes(value)
 
         ||
 
@@ -71,7 +73,7 @@ export default function Dashboard({
 
     });
 
-  }, [missions, search]);
+  }, [missions, pilots, search]);
 
 
 

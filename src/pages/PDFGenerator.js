@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import jsPDF from 'jspdf';
+import { resolveMissionPilotName } from "../utils/pilotDisplay";
 
-export default function PDFGenerator({ missions, onNavigate, t, canGeneratePdf = false }) {
+export default function PDFGenerator({ missions, onNavigate, t, canGeneratePdf = false, pilots = [] }) {
   const [selectedId, setSelectedId] = useState('');
 
   const runCompilation = () => {
     if (!canGeneratePdf) return;
-    const target = missions.find(m => m.id === parseInt(selectedId));
+    const target = missions.find(m => String(m.id) === selectedId);
     if (!target) return;
+    const pilotName = resolveMissionPilotName(target, pilots);
 
     const doc = new jsPDF();
 
@@ -43,7 +45,7 @@ export default function PDFGenerator({ missions, onNavigate, t, canGeneratePdf =
     addRow("Pétitionnaire / Client", target.name);
     addRow("Type d'aéronef affecté", "AÉROPLANE SEPRET TECHNIQUE");
     addRow("Zone d'évolution autorisée", target.zone);
-    addRow("Pilote Commandant", target.pilot);
+    addRow("Pilote Commandant", pilotName);
     addRow("Système de Prise de Vues", target.equipment);
     addRow("Statut de l'autorisation", target.status === 'approved' ? 'FAVORABLE / SIGNÉ' : 'EN COURS D\'INSTRUCTION');
 

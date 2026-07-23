@@ -75,7 +75,9 @@ export async function getAllMissions() {
         id: data.id ?? data.number ?? missionDoc.id,
         name: data.name ?? data.clientName ?? "Mission sans client",
         type: data.type ?? data.missionType ?? "",
-        zone: data.zone ?? data.location?.zoneLabel ?? ""
+        zone: data.zone ?? data.location?.zoneLabel ?? "",
+        pilot: data.pilot ?? "",
+        assignedPilotId: data.assignedPilotId ?? null
       };
     });
   } catch (error) {
@@ -102,6 +104,9 @@ export async function createMission(missionData = {}, currentUser = null) {
 
   try {
     const missionsRef = collection(db, MISSIONS_COLLECTION);
+    const assignedPilotId = typeof missionData.assignedPilotId === "string" && missionData.assignedPilotId.trim()
+      ? missionData.assignedPilotId.trim()
+      : null;
     const missionPayload = removeUndefinedValues({
       number: missionData.number ?? Date.now(),
       name: missionData.name ?? missionData.clientName ?? "Mission sans client",
@@ -112,8 +117,7 @@ export async function createMission(missionData = {}, currentUser = null) {
       expiryDate: missionData.expiryDate ?? "",
       status: normalizeMissionStatus(missionData.status),
       pilot: missionData.pilot ?? "",
-      // Controle frontend temporaire : l'affectation UID pilote sera fiabilisee via profils/Rules.
-      assignedPilotId: null,
+      assignedPilotId,
       equipment: missionData.equipment ?? "",
       equipmentIds: Array.isArray(missionData.equipmentIds) ? missionData.equipmentIds : [],
       createdBy: currentUser.uid,

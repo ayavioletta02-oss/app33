@@ -3,6 +3,7 @@ import { FeatureGroup, MapContainer, TileLayer, useMap } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 import * as turf from "@turf/turf";
 import { createMission } from "../services/missionService";
+import { getPilotDisplayName } from "../utils/pilotDisplay";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -147,13 +148,6 @@ const MISSION_TYPES = [
   "Thermographie aérienne"
 ];
 
-const PILOTS_LIST = [
-  "Mehdi Alami (Licence N°4429)",
-  "Anas Benjelloun (Licence N°5102)",
-  "Youssef Tazi (Licence N°3891)",
-  "Sami El Idrissi (Licence N°6214)"
-];
-
 const parseOptionalNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -177,7 +171,16 @@ function ChangeView({ center, zoom }) {
   return null;
 }
 
-export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData = false, currentUser = null, equipmentList = [] }) {
+export default function AppPortal({
+  onSubmit,
+  onNavigate,
+  canManageSensitiveData = false,
+  currentUser = null,
+  equipmentList = [],
+  pilots = [],
+  pilotsLoading = false,
+  pilotsError = ""
+}) {
   const TOTAL_STEPS = 5;
   const [currentTab, setCurrentTab] = useState("new_mission");
   const [step, setStep] = useState(1); // On démarre à l'étape 1
@@ -193,6 +196,7 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
     aircraftType: "Drone",
     equipmentId: "",
     drone: "",
+    assignedPilotId: "",
     pilot: "",
     altitude: "120",
     duration: "45",
@@ -208,6 +212,20 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
   const [saveError, setSaveError] = useState("");
   const compatibleEquipment = equipmentList.filter((equipment) => matchesAircraftType(equipment, formData.aircraftType));
   const selectedEquipment = equipmentList.find((equipment) => equipment.id === formData.equipmentId) || null;
+  const selectedPilot = pilots.find((pilot) => pilot.uid === formData.assignedPilotId) || null;
+  const selectedPilotDisplayName = selectedPilot
+    ? getPilotDisplayName(selectedPilot)
+    : formData.pilot;
+
+  const handlePilotChange = (pilotUid) => {
+    const pilot = pilots.find((item) => item.uid === pilotUid) || null;
+
+    setFormData((prev) => ({
+      ...prev,
+      assignedPilotId: pilotUid,
+      pilot: pilot ? getPilotDisplayName(pilot) : ""
+    }));
+  };
 
   const nextStep = () => {
     if (step < TOTAL_STEPS) {
@@ -232,6 +250,7 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
     const zoneLabel = [formData.commune, formData.province, formData.region]
       .filter(Boolean)
       .join(" - ") || formData.airport || "Zone non renseignee";
+    const assignedPilotId = formData.assignedPilotId || null;
 
     const missionData = {
       number: Date.now(),
@@ -243,6 +262,7 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
       expiryDate: "",
       status: "pending",
       pilot: formData.pilot || "",
+      assignedPilotId,
       equipment: selectedEquipment ? selectedEquipment.name : formData.drone || formData.aircraftType || "",
       equipmentIds: selectedEquipment ? [selectedEquipment.id] : [],
       location: {
@@ -280,6 +300,7 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
         aircraftType: "Drone",
         equipmentId: "",
         drone: "",
+        assignedPilotId: "",
         pilot: "",
         altitude: "120",
         duration: "45",
@@ -527,10 +548,38 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
 
                   <div className="form-group">
                     <label>Commandant de bord / Pilote accrédité *</label>
-                    <select value={formData.pilot} onChange={(e) => updateField("pilot", e.target.value)}>
-                      <option value="">Sélectionner un pilote...</option>
-                      {PILOTS_LIST.map((p, i) => <option key={i} value={p}>{p}</option>)}
+                    <select value={formData.assignedPilotId} onChange={(e) => handlePilotChange(e.target.value)} disabled={pilotsLoading}>
+                      <option value="">
+                        {pilotsLoading
+                          ? "Chargement des pilotes..."
+                          : pilots.length === 0
+                            ? "Aucun pilote actif disponible"
+                            : "Selectionner un pilote..."}
+                      </option>
+                      {pilots.map((pilot) => {
+                        const pilotName = getPilotDisplayName(pilot);
+                        const optionLabel = pilot.displayName && pilot.email
+                          ? `${pilot.displayName} - ${pilot.email}`
+                          : pilotName;
+
+                        return <option key={pilot.uid} value={pilot.uid}>{optionLabel}</option>;
+                      })}
                     </select>
+                    {pilotsLoading && (
+                      <div style={{ color: "#64748b", fontSize: "12px", marginTop: "6px", fontWeight: 600 }}>
+                        Chargement des pilotes actifs...
+                      </div>
+                    )}
+                    {pilotsError && (
+                      <div style={{ color: "#b91c1c", fontSize: "12px", marginTop: "6px", fontWeight: 600 }}>
+                        {pilotsError}
+                      </div>
+                    )}
+                    {!pilotsLoading && !pilotsError && pilots.length === 0 && (
+                      <div style={{ color: "#92400e", fontSize: "12px", marginTop: "6px", fontWeight: 600 }}>
+                        Aucun pilote actif n'existe dans les profils Firebase.
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group">
@@ -588,7 +637,7 @@ export default function AppPortal({ onSubmit, onNavigate, canManageSensitiveData
                     <div className="review-row"><span className="review-label">Localisation</span><span className="review-value">{formData.region ? `${formData.commune} (${formData.province})` : "Non renseignée"}</span></div>
                     <div className="review-row"><span className="review-label">Type d'appareil</span><span className="review-value">{formData.aircraftType}</span></div>
                     <div className="review-row"><span className="review-label">Vecteur</span><span className="review-value">{formData.drone || "Non renseigné"}</span></div>
-                    <div className="review-row"><span className="review-label">Pilote affecté</span><span className="review-value">{formData.pilot || "Non renseigné"}</span></div>
+                    <div className="review-row"><span className="review-label">Pilote affecté</span><span className="review-value">{selectedPilotDisplayName || "Non renseigné"}</span></div>
                   </div>
                 </div>
               )}
